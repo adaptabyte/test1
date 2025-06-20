@@ -4,12 +4,24 @@ import torch
 from chatterbox.src.chatterbox.tts import ChatterboxTTS
 import gradio as gr
 import spaces
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    AutoProcessor,
+    AutoModelForSpeechSeq2Seq,
+    pipeline,
+)
+import soundfile as sf
+import tempfile
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"🚀 Running on device: {DEVICE}")
 
 # --- Global Model Initialization ---
 MODEL = None
+STT_MODEL = None
+LLM_MODEL = None
+TOKENIZER = None
 
 def get_or_load_model():
     """Loads the ChatterboxTTS model if it hasn't been loaded already,
@@ -26,6 +38,30 @@ def get_or_load_model():
             print(f"Error loading model: {e}")
             raise
     return MODEL
+
+def get_or_load_stt():
+    """Loads the Parakeet speech recognition pipeline."""
+    global STT_MODEL
+    if STT_MODEL is None:
+        model_name = "nvidia/parakeet-tdt-0.6b-v2"
+        processor = AutoProcessor.from_pretrained(model_name)
+        model = AutoModelForSpeechSeq2Seq.from_pretrained(model_name).to(DEVICE)
+        STT_MODEL = pipeline(
+            "automatic-speech-recognition",
+            model=model,
+            tokenizer=processor.tokenizer,
+            feature_extractor=processor.feature_extractor,
+            device=0 if DEVICE == "cuda" else -1,
+        )
+    return STT_MODEL
+
+def get_or_load_llm():
+    global LLM_MODEL, TOKENIZER
+    if LLM_MODEL is None or TOKENIZER is None:
+        model_name = "Qwen/Qwen3-0.6B"
+        TOKENIZER = AutoTokenizer.from_pretrained(model_name)
+        LLM_MODEL = AutoModelForCausalLM.from_pretrained(model_name).to(DEVICE)
+    return LLM_MODEL, TOKENIZER
 
 # Attempt to load the model at startup.
 try:
@@ -84,53 +120,67 @@ def generate_tts_audio(
     print("Audio generation complete.")
     return (current_model.sr, wav.squeeze(0).numpy())
 
+@spaces.GPU
+def generate_conversation_response(mic_audio_path: str) -> tuple[int, np.ndarray, str, str]:
+    """Converts a microphone recording into a conversational reply using
+    STT, an LLM, and TTS.
+
+    Args:
+        mic_audio_path: Path to the recorded microphone audio.
+
+    Returns:
+        Tuple containing sample rate, generated waveform, transcript and LLM reply text.
+    """
+    if not mic_audio_path:
+        raise ValueError("No audio provided")
+
+    stt = get_or_load_stt()
+    llm, tokenizer = get_or_load_llm()
+    current_model = get_or_load_model()
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        data, sr = sf.read(mic_audio_path)
+        sf.write(tmp.name, data, sr)
+        audio_path = tmp.name
+
+    # Speech to text
+    stt_output = stt(audio_path)
+    transcript = stt_output["text"] if isinstance(stt_output, dict) else stt_output
+
+    # LLM response
+    inputs = tokenizer(transcript, return_tensors="pt").to(DEVICE)
+    with torch.inference_mode():
+        output_ids = llm.generate(**inputs, max_new_tokens=128)
+    reply_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+
+    # TTS using the user's voice as prompt
+    wav = current_model.generate(
+        reply_text,
+        audio_prompt_path=audio_path,
+    )
+    return current_model.sr, wav.squeeze(0).numpy(), transcript, reply_text
+
 with gr.Blocks() as demo:
     gr.Markdown(
         """
-        # Chatterbox TTS Demo
-        Generate high-quality speech from text with reference audio styling.
+        # Chatterbox Conversational Demo
+        Speak into the microphone and let the model respond in your own voice.
         """
     )
+
+    mic = gr.Audio(sources=["microphone"], type="filepath", label="Speak")
+
     with gr.Row():
-        with gr.Column():
-            text = gr.Textbox(
-                value="Now let's make my mum's favourite. So three mars bars into the pan. Then we add the tuna and just stir for a bit, just let the chocolate and fish infuse. A sprinkle of olive oil and some tomato ketchup. Now smell that. Oh boy this is going to be incredible.",
-                label="Text to synthesize (max chars 300)",
-                max_lines=5
-            )
-            ref_wav = gr.Audio(
-                sources=["upload", "microphone"],
-                type="filepath",
-                label="Reference Audio File (Optional)",
-                value="https://storage.googleapis.com/chatterbox-demo-samples/prompts/female_shadowheart4.flac"
-            )
-            exaggeration = gr.Slider(
-                0.25, 2, step=.05, label="Exaggeration (Neutral = 0.5, extreme values can be unstable)", value=.5
-            )
-            cfg_weight = gr.Slider(
-                0.2, 1, step=.05, label="CFG/Pace", value=0.5
-            )
+        transcript_box = gr.Textbox(label="Transcript")
+        reply_box = gr.Textbox(label="Model Reply")
 
-            with gr.Accordion("More options", open=False):
-                seed_num = gr.Number(value=0, label="Random seed (0 for random)")
-                temp = gr.Slider(0.05, 5, step=.05, label="Temperature", value=.8)
-
-            run_btn = gr.Button("Generate", variant="primary")
-
-        with gr.Column():
-            audio_output = gr.Audio(label="Output Audio")
+    audio_output = gr.Audio(label="Synthesized Response")
+    run_btn = gr.Button("Talk")
 
     run_btn.click(
-        fn=generate_tts_audio,
-        inputs=[
-            text,
-            ref_wav,
-            exaggeration,
-            temp,
-            seed_num,
-            cfg_weight,
-        ],
-        outputs=[audio_output],
+        fn=generate_conversation_response,
+        inputs=[mic],
+        outputs=[audio_output, transcript_box, reply_box],
     )
 
 demo.launch()
