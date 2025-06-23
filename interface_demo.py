@@ -13,8 +13,6 @@ demo = gr.ChatInterface(
         "Speak into your microphone and hear the demo repeat your words. "
         "This uses Gradio's built-in Whisper and gTTS for speech input and output."
     ),
-    input_audio="microphone",
-    output_audio=True,
 )
 
 if __name__ == "__main__":
