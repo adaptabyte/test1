@@ -8,12 +8,13 @@ def respond(message: str, history: list[tuple[str, str]]) -> str:
 
 demo = gr.ChatInterface(
     fn=respond,
-    title="Chatterbox Chat Demo",
+    title="Chatterbox Speech Chat Demo",
     description=(
-        "This is a minimal conversational interface that echoes back the user "
-        "message. Replace the `respond` function with a real TTS model for a "
-        "fully interactive experience."
+        "Speak into your microphone and hear the demo repeat your words. "
+        "This uses Gradio's built-in Whisper and gTTS for speech input and output."
     ),
+    input_audio="microphone",
+    output_audio=True,
 )
 
 if __name__ == "__main__":
