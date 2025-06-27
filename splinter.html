@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Splinter the Cat</title>
+<style>
+body {
+    background-color: #f0f8ff;
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+}
+
+h1 {
+    text-align: center;
+    color: #333;
+}
+
+p {
+    max-width: 600px;
+    margin: 0 auto;
+    font-size: 1.2em;
+    line-height: 1.5;
+    text-align: center;
+    color: #555;
+}
+
+.cat {
+    position: absolute;
+    width: 120px;
+    height: 64px;
+    background-image: url('https://media.giphy.com/media/sIIhZliB2McAo/giphy.gif');
+    background-size: cover;
+    animation: fly 8s linear infinite;
+}
+
+@keyframes fly {
+    from { transform: translateX(-150px) translateY(var(--start-y)); }
+    to { transform: translateX(100vw) translateY(var(--end-y)); }
+}
+</style>
+</head>
+<body>
+<h1>Splinter the Cat is Amazing!</h1>
+<p>Splinter is not just any ordinary cat. She's a marvel of agility, intelligence, and pure feline charm. Her playful antics and warm purrs bring joy to everyone around her.</p>
+
+<div class="cat" style="--start-y: 0px; --end-y: -50px; top: 10%; animation-delay: 0s;"></div>
+<div class="cat" style="--start-y: 50px; --end-y: 20px; top: 40%; animation-delay: 2s;"></div>
+<div class="cat" style="--start-y: -30px; --end-y: 30px; top: 70%; animation-delay: 4s;"></div>
+
+</body>
+</html>
