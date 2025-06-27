@@ -1,7 +1,6 @@
-# Tic-Tac-Toe Web App
+# Simple Pac-Man Clone
 
-This repository contains a simple two-player tic-tac-toe game implemented in HTML, CSS, and JavaScript.
+This repository contains a minimal Pac-Man style browser game built with HTML5 canvas and plain JavaScript.
 
 ## Running
-
-No dependencies are required. Simply open `index.html` in any modern web browser. Players take turns clicking the cells to place `X` or `O`. The game announces a winner or a draw and provides a restart button.
+Open `index.html` in any modern web browser. Use the arrow keys to move Pac-Man, collect all dots, and avoid the ghost. Press the Restart button to play again.
