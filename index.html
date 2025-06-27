@@ -2,74 +2,151 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Tic-Tac-Toe</title>
+<title>Pac-Man</title>
 <style>
-  body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
-  #board { display: grid; grid-template-columns: repeat(3, 100px); grid-gap: 5px; margin: auto; width: 315px; }
-  .cell { width: 100px; height: 100px; font-size: 72px; cursor: pointer; display:flex; align-items:center; justify-content:center; border:1px solid #333; }
-  .cell:hover { background:#f0f0f0; }
-  #status { margin-top: 20px; font-size: 24px; }
-  button { margin-top: 15px; padding: 10px 20px; font-size: 16px; }
+  body { background:#000; color:#fff; font-family:sans-serif; text-align:center; padding-top:20px; }
+  canvas { background:#000; display:block; margin:0 auto; border:2px solid #555; }
+  #score { margin-top:10px; font-size:20px; }
+  button { margin-top:10px; padding:8px 16px; font-size:16px; }
 </style>
 </head>
 <body>
-<h1>Tic-Tac-Toe</h1>
-<div id="board"></div>
-<div id="status">Player X's turn</div>
-<button id="reset">Restart</button>
+<h1>Pac-Man</h1>
+<canvas id="game" width="320" height="256"></canvas>
+<div id="score">Score: 0</div>
+<button id="restart">Restart</button>
 <script>
-const boardEl = document.getElementById('board');
-const statusEl = document.getElementById('status');
-const resetBtn = document.getElementById('reset');
-let board = Array(9).fill(null);
-let current = 'X';
+const CELL_SIZE = 32;
+let map = [
+  [1,1,1,1,1,1,1,1,1,1],
+  [1,2,2,2,2,2,2,2,2,1],
+  [1,2,1,1,2,1,1,1,2,1],
+  [1,2,1,1,2,1,1,1,2,1],
+  [1,2,2,2,2,2,2,2,2,1],
+  [1,2,1,1,1,1,1,1,2,1],
+  [1,2,2,2,2,2,2,2,2,1],
+  [1,1,1,1,1,1,1,1,1,1]
+];
+const initialMap = map.map(row => row.slice());
+let pacman = {x:1, y:1};
+let ghost = {x:8, y:6};
+let direction = null;
+let score = 0;
 let gameOver = false;
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const restartBtn = document.getElementById('restart');
 
-function render() {
-  boardEl.innerHTML = '';
-  board.forEach((cell, idx) => {
-    const div = document.createElement('div');
-    div.className = 'cell';
-    div.textContent = cell ? cell : '';
-    div.addEventListener('click', () => handleClick(idx));
-    boardEl.appendChild(div);
-  });
-}
-
-function handleClick(index) {
-  if (board[index] || gameOver) return;
-  board[index] = current;
-  if (checkWin(current)) {
-    statusEl.textContent = `Player ${current} wins!`;
-    gameOver = true;
-  } else if (board.every(c => c)) {
-    statusEl.textContent = 'Draw!';
-    gameOver = true;
+function drawCell(x,y){
+  const cell = map[y][x];
+  if(cell === 1){
+    ctx.fillStyle = '#0033ff';
+    ctx.fillRect(x*CELL_SIZE,y*CELL_SIZE,CELL_SIZE,CELL_SIZE);
   } else {
-    current = current === 'X' ? 'O' : 'X';
-    statusEl.textContent = `Player ${current}'s turn`;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x*CELL_SIZE,y*CELL_SIZE,CELL_SIZE,CELL_SIZE);
+    if(cell === 2){
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(x*CELL_SIZE + CELL_SIZE/2, y*CELL_SIZE + CELL_SIZE/2, 4, 0, Math.PI*2);
+      ctx.fill();
+    }
   }
-  render();
 }
 
-function checkWin(player) {
-  const lines = [
-    [0,1,2], [3,4,5], [6,7,8],
-    [0,3,6], [1,4,7], [2,5,8],
-    [0,4,8], [2,4,6]
-  ];
-  return lines.some(line => line.every(i => board[i] === player));
+function draw(){
+  for(let y=0; y<map.length; y++){
+    for(let x=0; x<map[0].length; x++){
+      drawCell(x,y);
+    }
+  }
+  ctx.fillStyle = 'yellow';
+  ctx.beginPath();
+  ctx.arc(pacman.x*CELL_SIZE + CELL_SIZE/2, pacman.y*CELL_SIZE + CELL_SIZE/2, CELL_SIZE/2-2, 0, Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle = 'red';
+  ctx.beginPath();
+  ctx.arc(ghost.x*CELL_SIZE + CELL_SIZE/2, ghost.y*CELL_SIZE + CELL_SIZE/2, CELL_SIZE/2-2, 0, Math.PI*2);
+  ctx.fill();
 }
 
-resetBtn.addEventListener('click', () => {
-  board = Array(9).fill(null);
-  current = 'X';
-  gameOver = false;
-  statusEl.textContent = "Player X's turn";
-  render();
+function updatePacman(){
+  if(!direction) return;
+  const dirs = {ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0]};
+  const [dx,dy] = dirs[direction] || [0,0];
+  const nx = pacman.x + dx;
+  const ny = pacman.y + dy;
+  if(map[ny] && map[ny][nx] !== 1){
+    pacman.x = nx;
+    pacman.y = ny;
+    if(map[ny][nx] === 2){
+      map[ny][nx] = 0;
+      score++;
+      scoreEl.textContent = 'Score: ' + score;
+    }
+  }
+}
+
+function moveGhost(){
+  const options = [];
+  const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+  for(const d of dirs){
+    const nx = ghost.x + d[0];
+    const ny = ghost.y + d[1];
+    if(map[ny] && map[ny][nx] !== 1){
+      options.push(d);
+    }
+  }
+  if(options.length){
+    const [dx,dy] = options[Math.floor(Math.random()*options.length)];
+    ghost.x += dx;
+    ghost.y += dy;
+  }
+}
+
+function remainingDots(){
+  return map.flat().filter(c=>c===2).length;
+}
+
+function checkGameState(){
+  if(ghost.x === pacman.x && ghost.y === pacman.y){
+    gameOver = true;
+    scoreEl.textContent = 'Game Over! Score: ' + score;
+  } else if(remainingDots() === 0){
+    gameOver = true;
+    scoreEl.textContent = 'You Win! Score: ' + score;
+  }
+}
+
+function gameLoop(){
+  if(gameOver) return;
+  updatePacman();
+  moveGhost();
+  checkGameState();
+  draw();
+}
+
+window.addEventListener('keydown', e=>{
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){
+    direction = e.key;
+    e.preventDefault();
+  }
 });
 
-render();
+restartBtn.addEventListener('click', ()=>{
+  map = initialMap.map(row => row.slice());
+  pacman = {x:1, y:1};
+  ghost = {x:8, y:6};
+  direction = null;
+  score = 0;
+  gameOver = false;
+  scoreEl.textContent = 'Score: 0';
+  draw();
+});
+
+draw();
+setInterval(gameLoop, 200);
 </script>
 </body>
 </html>
