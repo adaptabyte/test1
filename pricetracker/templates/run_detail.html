@@ -38,7 +38,7 @@
       <td>{{ q.tracker }}</td>
       <td class="nowrap">{{ q.provider }}</td>
       <td>{{ q.query }}</td>
-      <td><code class="small">{{ q.request }}</code></td>
+      <td><details><summary class="small">show</summary><code class="small request">{{ q.request }}</code></details></td>
       <td class="num">{% if q.duration_ms is not none %}{{ (q.duration_ms / 1000)|round(1) }}s{% endif %}</td>
       <td class="num">{{ q.result_count if q.result_count is not none else '—' }}</td>
       <td class="num">{{ q.kept }}</td>

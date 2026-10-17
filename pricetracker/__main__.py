@@ -17,6 +17,7 @@ def main() -> int:
     scan.add_argument("--no-email", action="store_true", help="do not email new matches")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per request is noise; the scan log has details
 
     if args.command == "scan":
         from .db import Database

@@ -398,3 +398,15 @@ def test_parse_price(value, expected):
 )
 def test_parse_shipping(texts, expected):
     assert parse_shipping(*texts)[0] == expected
+
+
+def test_bot_challenge_redirect_is_reported():
+    from pricetracker.sources.pages import fetch_product_page
+
+    def handler(request):
+        if "/itm/" in request.url.path:
+            return httpx.Response(302, headers={"Location": "https://www.ebay.com/splashui/challenge?ap=1"})
+        return httpx.Response(200, text="<html><body>Checking your browser</body></html>")
+
+    page = fetch_product_page(client(handler), "https://www.ebay.com/itm/123456789012")
+    assert "bot protection" in page["error"] and "price" not in page

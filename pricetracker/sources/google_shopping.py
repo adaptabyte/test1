@@ -88,7 +88,7 @@ class SerpApiSource:
     def _params(self, query: str) -> dict:
         cfg = self.search_cfg
         params = {"engine": "google_shopping", "q": query, "gl": cfg["country"], "hl": cfg["language"]}
-        params["num"] = cfg["results_per_query"]
+        params["num"] = min(int(cfg["results_per_query"]), 100)
         if cfg["location"]:
             params["location"] = cfg["location"]
         return params
@@ -130,7 +130,7 @@ class SerperSource:
 
     def _body(self, query: str) -> dict:
         cfg = self.search_cfg
-        body = {"q": query, "gl": cfg["country"], "hl": cfg["language"], "num": cfg["results_per_query"]}
+        body = {"q": query, "gl": cfg["country"], "hl": cfg["language"], "num": min(int(cfg["results_per_query"]), 100)}
         if cfg["location"]:
             body["location"] = cfg["location"]
         return body

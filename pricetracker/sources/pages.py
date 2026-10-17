@@ -52,7 +52,7 @@ _NON_LISTING_PATH = re.compile(
 
 _BLOCK_MARKERS = re.compile(
     r"captcha|robot or human|pardon our interruption|access denied|are you a robot|unusual traffic"
-    r"|request blocked|verify you are a human",
+    r"|request blocked|verify you are a human|splashui/challenge|px-captcha|challenge-platform",
     re.I,
 )
 _SITE_SUFFIX = re.compile(r"\s*[|\-–—:]\s*(?:ebay|newegg(?:\.com)?|walmart(?:\.com)?|amazon(?:\.com)?|best buy"
@@ -89,6 +89,8 @@ def fetch_product_page(client: httpx.Client, url: str) -> dict:
     page["final_url"] = str(response.url)
     text = response.text[:MAX_PAGE_BYTES]
     page.update(parse_product_page(text))
+    if "challenge" in page["final_url"]:  # e.g. eBay's splashui/challenge bot check
+        text += " splashui/challenge"
     if response.status_code >= 400 or (page.get("price") is None and _BLOCK_MARKERS.search(text[:200_000])):
         blocked = response.status_code in (401, 403, 429, 503) or _BLOCK_MARKERS.search(text[:200_000])
         reason = "the store's bot protection blocked the request" if blocked else "the page returned an error"

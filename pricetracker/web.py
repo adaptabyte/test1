@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse
 from zoneinfo import ZoneInfo
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -48,6 +49,7 @@ from .sources import SOURCE_LABELS, ProviderError, build_sources, parse_price, p
 
 log = logging.getLogger(__name__)
 HERE = Path(__file__).parent
+_CONFIG_CHECK_CLIENT = httpx.Client()  # handed to sources built only to check their settings; never used
 PAGE_SIZE = 100
 
 
@@ -117,7 +119,7 @@ def create_app(db_path: str | Path | None = None, start_scheduler: bool = True) 
                 "accepted": len(accepted),
                 "best": min((o["unit_price"] for o in accepted), default=None),
             }
-        sources, source_problems = build_sources(effective)
+        sources, source_problems = build_sources(effective, client=_CONFIG_CHECK_CLIENT)
         if not sources and not source_problems:
             source_problems = ["No search sources are enabled"]
         return render(
@@ -407,7 +409,11 @@ def create_app(db_path: str | Path | None = None, start_scheduler: bool = True) 
             cfg["enabled"] = key == name.split(":")[0]
         searxng = settings["sources"]["searxng"]
         searxng.update(use_ebay_engine=name == "searxng:ebay", use_web_search=name == "searxng:web", max_page_fetches=3)
-        sources, problems = build_sources(settings)
+        with httpx.Client(timeout=settings["search"]["timeout_seconds"]) as http:
+            return _test_source(settings, name, http)
+
+    def _test_source(settings: dict, name: str, http: httpx.Client) -> RedirectResponse:
+        sources, problems = build_sources(settings, client=http)
         label = SOURCE_LABELS[name]
         if problems or not sources:
             return back("/settings", err=f"{label}: " + ("; ".join(problems) or "not available"))

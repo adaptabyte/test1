@@ -1,6 +1,7 @@
 services:
   pricetracker:
     build: .
+    image: pricetracker
     container_name: pricetracker
     restart: unless-stopped
     ports:
@@ -8,8 +9,29 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      SEARXNG_URL: http://searxng:8080
     volumes:
       - tracker-data:/data
+    depends_on:
+      - searxng
+
+  # Private SearXNG instance used as the free search engine. It is not published to your network;
+  # only the tracker talks to it. To also use it in a browser, uncomment the ports lines.
+  searxng:
+    image: searxng/searxng:latest
+    container_name: pricetracker-searxng
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-change-me-to-a-long-random-string}
+      GRANIAN_HOST: 0.0.0.0  # IPv4; SearXNG's default "::" fails on hosts without IPv6
+      FORCE_OWNERSHIP: "false"  # read the config without chown-ing this repo's searxng/ folder
+    volumes:
+      - ./searxng:/etc/searxng
+      - searxng-cache:/var/cache/searxng
+    # ports:
+    #   - "8888:8080"
 
 volumes:
   tracker-data:
+  searxng-cache:

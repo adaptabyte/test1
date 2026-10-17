@@ -56,13 +56,13 @@ def enabled_source_classes(settings: dict) -> list[type]:
 
 def build_sources(settings: dict, client: httpx.Client | None = None) -> tuple[list, list[str]]:
     """(usable sources, problems with enabled sources that could not be set up)."""
-    sources, problems = [], []
+    sources, failures = [], {}
     for cls in enabled_source_classes(settings):
         try:
             sources.append(cls(settings, client=client))
         except ProviderError as exc:
-            problems.append(f"{cls.label}: {exc}")
-    return sources, problems
+            failures.setdefault(str(exc), []).append(cls.label)  # both SearXNG sources share one config
+    return sources, [f"{' / '.join(labels)}: {message}" for message, labels in failures.items()]
 
 
 def offer_from_raw(source_name: str, raw: dict) -> Offer:

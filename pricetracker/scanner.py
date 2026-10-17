@@ -11,6 +11,8 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
+import httpx
+
 from .db import Database, utcnow
 from .merchants import domain_of
 from .models import Evaluation, Offer
@@ -125,12 +127,18 @@ def start_scan(db: Database, trigger: str, send_email: bool = True, sources=None
 
 
 def _execute(db: Database, run_id: int, settings: dict, send_email_enabled: bool, sources) -> None:
+    # One HTTP client for every source in this scan, closed when the scan ends.
+    with httpx.Client(timeout=settings["search"]["timeout_seconds"]) as http:
+        _scan(db, run_id, settings, send_email_enabled, sources, http)
+
+
+def _scan(db: Database, run_id: int, settings: dict, send_email_enabled: bool, sources, http: httpx.Client) -> None:
     log = _RunLog(db, run_id)
     counts: Counter = Counter()
     try:
         problems: list[str] = []
         if sources is None:
-            sources, problems = build_sources(settings)
+            sources, problems = build_sources(settings, client=http)
         for problem in problems:
             log(f"Source not used: {problem}")
         if not sources:

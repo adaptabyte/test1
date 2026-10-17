@@ -153,7 +153,7 @@ class SearxngWebSource:
         self.fetch_budget = int(cfg["max_page_fetches"])
         self.merchants = settings["merchants"]
         self.allow_untrusted = settings["general"]["allow_untrusted_merchants"]
-        self.page_client = page_client or httpx.Client(timeout=20)
+        self.page_client = page_client or self.sx.client
         self._pages: dict[str, dict] = {}  # one fetch per URL per scan
         self.warnings: list[str] = []
 
