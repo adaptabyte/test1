@@ -1,0 +1,21 @@
+[project]
+name = "pricetracker"
+version = "1.0.0"
+description = "Google Shopping price tracker with a web UI and email alerts"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF003"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff.lint.per-file-ignores]
+# Test fixtures hold realistic one-line JSON/HTML payloads.
+"tests/*" = ["E501"]

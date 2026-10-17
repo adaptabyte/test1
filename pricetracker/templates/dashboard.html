@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Dashboard{% endblock %}
+{% block head %}{% if running %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block content %}
+<div class="row spread">
+  <h1>Dashboard</h1>
+  <form method="post" action="/scan" class="row">
+    <label class="check"><input type="checkbox" name="send_email" checked> Email new matches</label>
+    <button class="btn primary" {% if scan_running %}disabled{% endif %}>Run scan now</button>
+  </form>
+</div>
+
+{% if source_problems or email_problem %}
+<div class="flash warn">
+  <b>Setup needed</b>
+  <ul>
+    {% for problem in source_problems %}<li>Search: {{ problem }}. Fix it in <a href="/settings#sources">Settings → Search sources</a>.</li>{% endfor %}
+    {% if email_problem %}<li>Email: {{ email_problem }}. Configure it in <a href="/settings#email">Settings → Email</a>.</li>{% endif %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="grid">
+  <div class="card">
+    <div class="stat-label">Last scan</div>
+    {% if latest %}
+      <div class="stat-value"><a href="/runs/{{ latest.id }}">#{{ latest.id }}</a> {{ m.status_badge(latest.status) }}</div>
+      <div class="small muted">{{ latest.started_at|dt }} ({{ latest.started_at|ago }})</div>
+      <div class="small">{{ latest.accepted_count }} accepted · {{ latest.rejected_count }} rejected · {{ latest.query_count }} queries</div>
+    {% else %}
+      <div class="stat-value">None yet</div>
+      <div class="small muted">Run a scan to get started.</div>
+    {% endif %}
+    {% if running %}<div class="small"><a href="/runs/{{ running.id }}">Scan #{{ running.id }} is running…</a></div>{% endif %}
+  </div>
+  <div class="card">
+    <div class="stat-label">Next scheduled scan</div>
+    {% if next_runs %}
+      <div class="stat-value">{{ next_runs[0]|dt("%I:%M %p") }}</div>
+      <div class="small muted">{{ next_runs[0]|dt("%a %b %d") }} · {{ next_runs[0]|ago }}</div>
+      <div class="small">Daily at {{ settings.schedule.times|join(", ") }}</div>
+    {% else %}
+      <div class="stat-value">Off</div>
+      <div class="small muted">Scheduled scans are disabled in Settings.</div>
+    {% endif %}
+  </div>
+  <div class="card">
+    <div class="stat-label">Matches emailed</div>
+    <div class="stat-value">{{ counts.notified }}</div>
+    <div class="small muted">{{ counts.emails }} emails sent to {{ settings.email.to }}</div>
+    {% if last_email %}<div class="small">Last: <a href="/emails">{{ last_email.status }}</a> {{ last_email.created_at|ago }}</div>{% endif %}
+  </div>
+  <div class="card">
+    <div class="stat-label">Listings tracked</div>
+    <div class="stat-value">{{ counts.listings }}</div>
+    <div class="small muted">{{ counts.observations }} observations kept</div>
+    <div class="small">Sources: {{ source_names|join(", ") or "none" }}</div>
+  </div>
+</div>
+
+<h2>Trackers</h2>
+<div class="grid">
+  {% for key, t in trackers.items() %}
+  <div class="card">
+    <div class="row spread">
+      <h3>{{ t.label }}</h3>
+      {% if t.enabled %}<span class="badge ok">on</span>{% else %}<span class="badge">off</span>{% endif %}
+    </div>
+    <dl class="kv small">
+      {% if key == 'ram' %}
+      <dt>Rule</dt><dd>{{ t.module_size_gb }}GB per stick, DDR4 ≥ {{ t.min_speed_mts }} (prefer {{ t.preferred_speed_mts }}), {{ t.allowed_types|join("/") }}, ≤ {{ t.max_sticks_per_listing }} sticks</dd>
+      <dt>Price</dt><dd>below {{ t.max_price_per_stick|money }} per stick{% if t.include_shipping %} incl. shipping{% endif %}</dd>
+      {% else %}
+      <dt>Rule</dt><dd>{{ t.model }}, not vendor locked, not for parts</dd>
+      <dt>Price</dt><dd>below {{ t.max_price|money }} per CPU{% if t.include_shipping %} incl. shipping{% endif %}</dd>
+      {% endif %}
+      <dt>Queries</dt><dd>{{ t.queries|length }}</dd>
+      <dt>Last good scan</dt><dd>{{ summary[key].accepted }} accepted of {{ summary[key].seen }} listings{% if summary[key].best is not none %} · best {{ summary[key].best|money }}{% endif %}</dd>
+    </dl>
+  </div>
+  {% endfor %}
+</div>
+
+<h2>Current matches <span class="muted small">{% if matches_run %}(accepted in <a href="/runs/{{ matches_run.id }}">scan #{{ matches_run.id }}</a>{% if latest and latest.id != matches_run.id %}, the last scan that succeeded{% endif %}){% endif %}</span></h2>
+{{ m.observation_table(current) }}
+
+<h2>Recent scans</h2>
+<div class="table-wrap">
+<table class="data">
+  <thead><tr><th>Scan</th><th>Started</th><th>Trigger</th><th>Status</th><th class="num">Results</th><th class="num">Accepted</th><th class="num">New matches</th><th>Email</th></tr></thead>
+  <tbody>
+  {% for r in recent_runs %}
+    <tr>
+      <td><a href="/runs/{{ r.id }}">#{{ r.id }}</a></td>
+      <td class="nowrap">{{ r.started_at|dt }}</td>
+      <td>{{ r.trigger }}</td>
+      <td>{{ m.status_badge(r.status) }}</td>
+      <td class="num">{{ r.result_count }}</td>
+      <td class="num">{{ r.accepted_count }}</td>
+      <td class="num">{{ r.new_match_count }}</td>
+      <td class="small">{{ r.email_status or '' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="muted">No scans yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

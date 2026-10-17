@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Replay scan #{{ run.id }}{% endblock %}
+{% block content %}
+<h1>Replay scan #{{ run.id }} with current settings</h1>
+<p class="muted">The listings stored for <a href="/runs/{{ run.id }}">scan #{{ run.id }}</a> ({{ run.started_at|dt }}) were re-checked against your current rules. Nothing is saved and no email is sent, and no API queries are used. Use this to see what a settings change would do.</p>
+<div class="grid">
+  <div class="card"><div class="stat-label">Listings re-checked</div><div class="stat-value">{{ total }}</div></div>
+  <div class="card"><div class="stat-label">Accepted then → now</div><div class="stat-value">{{ was_accepted }} → {{ now_accepted }}</div></div>
+  <div class="card"><div class="stat-label">Decisions changed</div><div class="stat-value">{{ changed_count }}</div></div>
+</div>
+<div class="chips" style="margin-top:14px">
+  <a class="chip {{ 'active' if only_changed else '' }}" href="?changed=1">Only changed</a>
+  <a class="chip {{ '' if only_changed else 'active' }}" href="?changed=0">All listings</a>
+</div>
+<div class="table-wrap">
+<table class="data">
+  <thead><tr><th>Then</th><th>Now</th><th>Listing</th><th>Seller</th><th class="num">Per unit now</th><th>Reasons now</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td>{{ m.decision_badge(r.old.decision) }}</td>
+      <td>{{ m.decision_badge(r.new.decision) }}</td>
+      <td class="title"><a href="/listings/{{ r.old.listing_id }}">{{ r.old.title }}</a>
+        <div class="small muted">{{ m.specs(r.new.tracker, r.new.attributes) }}</div></td>
+      <td>{{ r.old.merchant }}</td>
+      <td class="num">{{ r.new.unit_price|money }}</td>
+      <td>{{ m.reasons_list(r.new.reasons, r.new.notes) }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="muted">{{ 'No decisions would change with the current settings.' if only_changed else 'This scan has no stored listings.' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

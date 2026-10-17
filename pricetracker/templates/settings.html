@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% macro error(name) -%}{% if errors.get(name) %}<div class="field-error">{{ errors[name] }}</div>{% endif %}{%- endmacro %}
+
+{% macro text(name, label, value, hint="", type="text") -%}
+<div class="{{ 'has-error' if errors.get(name) else '' }}">
+  <label for="{{ name }}">{{ label }}</label>
+  <input id="{{ name }}" type="{{ type }}" name="{{ name }}" value="{{ value }}"{% if type == 'number' %} step="any"{% endif %}>
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}{{ error(name) }}
+</div>
+{%- endmacro %}
+
+{% macro area(name, label, value, hint="", cls="") -%}
+<div class="{{ 'has-error' if errors.get(name) else '' }}">
+  <label for="{{ name }}">{{ label }}</label>
+  <textarea id="{{ name }}" name="{{ name }}" class="{{ cls }}">{{ value }}</textarea>
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}{{ error(name) }}
+</div>
+{%- endmacro %}
+
+{% macro check(name, label, checked, hint="") -%}
+<label class="check"><input type="checkbox" name="{{ name }}" {{ 'checked' if checked else '' }}>
+  <span>{{ label }}{% if hint %}<span class="hint" style="display:block">{{ hint }}</span>{% endif %}</span></label>
+{%- endmacro %}
+
+{% macro select(name, label, options, current, hint="") -%}
+<div class="{{ 'has-error' if errors.get(name) else '' }}">
+  <label for="{{ name }}">{{ label }}</label>
+  <select id="{{ name }}" name="{{ name }}">
+    {% for value, text in options.items() %}<option value="{{ value }}" {{ 'selected' if value == current else '' }}>{{ text }}</option>{% endfor %}
+  </select>
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}{{ error(name) }}
+</div>
+{%- endmacro %}
+
+{% macro env_placeholder(name, fallback) -%}
+{%- set origin = origins.get(name, '') -%}
+{%- if origin == 'settings' %}saved (leave blank to keep){% elif origin.startswith('env:') %}using {{ origin[4:] }} environment variable{% else %}{{ fallback }}{% endif -%}
+{%- endmacro %}
+
+{% macro secret(name, label, hint="") -%}
+<div class="{{ 'has-error' if errors.get(name) else '' }}">
+  <label for="{{ name }}">{{ label }}</label>
+  <input id="{{ name }}" type="password" name="{{ name }}" value="" autocomplete="new-password" placeholder="{{ env_placeholder(name, 'not set') }}">
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}
+  {% if origins.get(name) == 'settings' %}<label class="check"><input type="checkbox" name="{{ name }}.clear"> Clear saved value</label>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro plain_env(name, label, value, example, hint="") -%}
+{# A non-secret field that can also come from an environment variable. #}
+<div class="{{ 'has-error' if errors.get(name) else '' }}">
+  <label for="{{ name }}">{{ label }}</label>
+  <input id="{{ name }}" type="text" name="{{ name }}" value="{{ value }}"
+    placeholder="{{ 'using ' ~ origins[name][4:] ~ ' environment variable' if origins.get(name, '').startswith('env:') else example }}">
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}{{ error(name) }}
+</div>
+{%- endmacro %}
+
+{% macro test_button(source) -%}
+<button class="btn small" name="source" value="{{ source }}" formaction="/settings/test-source" formmethod="post">Test {{ source_labels[source] }}</button>
+{%- endmacro %}
+
+{% block content %}
+<h1>Settings</h1>
+{% if errors %}<div class="flash bad">Some settings need fixing (marked below). Nothing was saved.</div>{% endif %}
+
+<form method="post" action="/settings">
+<fieldset id="sources">
+  <legend>Search sources</legend>
+  <p class="hint">Every tracker query is sent to every enabled source, and the results are combined (a listing found by several sources counts once). SearXNG and the eBay API are free. Test buttons run one sample search with the <b>saved</b> settings, so save first.</p>
+  {{ error("sources") }}
+
+  <h3>SearXNG <span class="badge ok">free</span></h3>
+  <p class="hint">Your own SearXNG instance; <code>docker compose up</code> starts one for you. SearXNG has no Google Shopping engine, so it is used two ways: its <b>eBay engine</b> (eBay search results with prices) and <b>web search</b> limited to trusted stores, where the tracker opens each listing page to read its price from the store's product data. Stores with strong bot protection (often Amazon and Walmart) may not give a price; those listings show up as rejected with that reason.</p>
+  {{ check("sources.searxng.enabled", "Use SearXNG", settings.sources.searxng.enabled) }}
+  <div class="form-grid">
+    {{ plain_env("sources.searxng.base_url", "SearXNG URL", settings.sources.searxng.base_url, "http://localhost:8888", "The Docker setup provides http://searxng:8080 automatically") }}
+    {{ text("sources.searxng.web_engines", "Web search engines", settings.sources.searxng.web_engines, "SearXNG engine names, comma separated. Engines that fail are skipped and noted in the scan log.") }}
+    {{ text("sources.searxng.web_pages", "Result pages per web search", settings.sources.searxng.web_pages, "1–5", "number") }}
+    {{ text("sources.searxng.max_page_fetches", "Max listing pages opened per scan", settings.sources.searxng.max_page_fetches, "Each page is opened once per scan", "number") }}
+  </div>
+  {{ check("sources.searxng.use_ebay_engine", "Search eBay with SearXNG's eBay engine", settings.sources.searxng.use_ebay_engine, "Scrapes eBay's search page; may stop working when eBay changes its site. The eBay API below is the reliable alternative.") }}
+  {{ check("sources.searxng.use_web_search", "Search the web for listings on trusted stores", settings.sources.searxng.use_web_search) }}
+  {{ check("sources.searxng.fetch_product_pages", "Open listing pages on trusted stores to read the price", settings.sources.searxng.fetch_product_pages, "Without this, web results have no price and are rejected.") }}
+  {{ area("sources.searxng.restrict_to_sites", "Limit web search to these sites", settings.sources.searxng.restrict_to_sites|join("\n"), "One domain per line, added to each query as site: filters. Blank = search the whole web (results are still filtered by the trusted list).") }}
+  <p>{{ test_button("searxng:ebay") }} {{ test_button("searxng:web") }}</p>
+
+  <h3>eBay Browse API <span class="badge ok">free</span> <span class="badge info">recommended</span></h3>
+  <p class="hint">eBay's official API: reliable prices, shipping and condition, plus seller feedback (used to skip risky sellers, see Trusted merchants). Free for up to 5,000 searches a day. Create a free account at developer.ebay.com, create a <b>Production</b> keyset, and paste its App ID (client ID) and Cert ID (client secret). eBay asks new keysets about account-deletion notifications; choosing the exemption for apps that don't store eBay user data is fine for this tracker.</p>
+  {{ check("sources.ebay_api.enabled", "Use the eBay API", settings.sources.ebay_api.enabled) }}
+  <div class="form-grid">
+    {{ plain_env("sources.ebay_api.client_id", "App ID (client ID)", settings.sources.ebay_api.client_id, "YourName-PriceTra-PRD-…") }}
+    {{ secret("sources.ebay_api.client_secret", "Cert ID (client secret)") }}
+  </div>
+  <p>{{ test_button("ebay_api") }}</p>
+
+  <h3>Google Shopping via SerpApi or Serper <span class="badge warn">paid</span></h3>
+  <p class="hint">Optional. These run real Google Shopping searches (all stores, with prices) but need a paid plan beyond their small free quotas. With your current settings the paid sources would use about <b>{{ paid_requests }} requests a month</b>.</p>
+  <div class="form-grid">
+    <div>{{ check("sources.serpapi.enabled", "Use SerpApi", settings.sources.serpapi.enabled) }}{{ secret("sources.serpapi.api_key", "SerpApi API key") }}<p>{{ test_button("serpapi") }}</p></div>
+    <div>{{ check("sources.serper.enabled", "Use Serper.dev", settings.sources.serper.enabled) }}{{ secret("sources.serper.api_key", "Serper API key") }}<p>{{ test_button("serper") }}</p></div>
+  </div>
+
+  <h3>Demo data</h3>
+  {{ check("sources.demo.enabled", "Add fake sample listings to every scan (for trying the app)", settings.sources.demo.enabled) }}
+
+  <h3>Search options</h3>
+  <div class="form-grid">
+    {{ text("search.country", "Country", settings.search.country, "Two-letter code; 'us' for US stores") }}
+    {{ text("search.language", "Language", settings.search.language) }}
+    {{ text("search.results_per_query", "Results per query (eBay API, SerpApi, Serper)", settings.search.results_per_query, "10–200", "number") }}
+    {{ text("search.timeout_seconds", "Request timeout (seconds)", settings.search.timeout_seconds, "", "number") }}
+    {{ text("search.location", "Location (SerpApi / Serper only)", settings.search.location, "e.g. 'Austin, Texas, United States'") }}
+  </div>
+</fieldset>
+
+<fieldset id="schedule">
+  <legend>Schedule</legend>
+  {{ check("schedule.enabled", "Run scans automatically", settings.schedule.enabled) }}
+  <div class="form-grid">
+    {{ text("schedule.times", "Times of day", settings.schedule.times|join(", "), "24-hour HH:MM, comma separated. Default is twice a day.") }}
+    {{ text("schedule.timezone", "Time zone", settings.schedule.timezone, "IANA name, e.g. America/New_York, America/Chicago, America/Los_Angeles") }}
+  </div>
+</fieldset>
+
+<fieldset id="email">
+  <legend>Email</legend>
+  {{ check("email.enabled", "Send an email when a scan finds new matches", settings.email.enabled) }}
+  <div class="form-grid">
+    {{ text("email.to", "Send to", settings.email.to, "Comma-separate several addresses") }}
+    {{ select("email.method", "Send with", email_methods, settings.email.method) }}
+    {{ text("email.from_address", "From address", settings.email.from_address, "Blank = " ~ resend_default_from ~ " with Resend, or the SMTP username") }}
+  </div>
+  <h3>Resend</h3>
+  <p class="hint">Free for up to 3,000 emails a month. Sign up at resend.com <b>with {{ settings.email.to.split(",")[0] }}</b> and create an API key. Without your own domain, Resend's shared sender (onboarding@resend.dev) can only email the address the Resend account was created with, which is all this tracker needs. To send to other addresses, verify a domain in Resend and set the From address to it.</p>
+  <div class="form-grid">
+    {{ secret("email.resend_api_key", "Resend API key", "Starts with re_") }}
+  </div>
+  <h3>SMTP</h3>
+  <div class="form-grid">
+    {{ text("email.smtp_host", "SMTP server", settings.email.smtp_host, "Gmail: smtp.gmail.com") }}
+    {{ text("email.smtp_port", "SMTP port", settings.email.smtp_port, "587 for STARTTLS, 465 for SSL", "number") }}
+    {{ select("email.smtp_security", "Encryption", smtp_security, settings.email.smtp_security) }}
+    {{ plain_env("email.smtp_username", "SMTP username", settings.email.smtp_username, "e.g. you@gmail.com", "Usually your full email address") }}
+    {{ secret("email.smtp_password", "SMTP password", "For Gmail, create an App Password (Google Account → Security → 2-Step Verification → App passwords).") }}
+  </div>
+  {{ check("email.renotify_on_price_drop", "Email again when an already-emailed listing drops in price", settings.email.renotify_on_price_drop) }}
+  <div class="form-grid">
+    {{ text("email.price_drop_percent", "Minimum drop to re-email (%)", settings.email.price_drop_percent, "", "number") }}
+  </div>
+  <p><button class="btn" formaction="/settings/test-email" formmethod="post">Send test email</button> <span class="hint">Uses the saved settings; save first if you changed anything.</span></p>
+</fieldset>
+
+{% set ram = settings.trackers.ram %}
+<fieldset id="ram">
+  <legend>Tracker: {{ ram.label }}</legend>
+  {{ check("trackers.ram.enabled", "Enabled", ram.enabled) }}
+  {{ text("trackers.ram.label", "Name", ram.label) }}
+  {{ area("trackers.ram.queries", "Search queries (one per line)", ram.queries|join("\n"), "Each line is sent to every search source on every scan. Broad queries find more; the rules below do the filtering.") }}
+  <div class="form-grid">
+    {{ text("trackers.ram.max_price_per_stick", "Price per stick must be below ($)", ram.max_price_per_stick, "A 2-stick kit's price is divided by 2", "number") }}
+    {{ text("trackers.ram.min_price_per_stick", "Reject below ($ per stick)", ram.min_price_per_stick, "Sanity floor: lower prices are usually scams or mis-parsed", "number") }}
+    {{ text("trackers.ram.module_size_gb", "Capacity per stick (GB)", ram.module_size_gb, "", "number") }}
+    {{ text("trackers.ram.max_sticks_per_listing", "Max sticks per listing", ram.max_sticks_per_listing, "2 = single sticks and 2-stick kits", "number") }}
+    {{ text("trackers.ram.min_speed_mts", "Minimum speed (MT/s)", ram.min_speed_mts, "e.g. 2666", "number") }}
+    {{ text("trackers.ram.preferred_speed_mts", "Preferred speed (MT/s)", ram.preferred_speed_mts, "Matches at or above this are tagged 'preferred'", "number") }}
+    {{ text("trackers.ram.ebay_category_id", "eBay API category", ram.ebay_category_id, "170083 = Memory (RAM); blank = all categories") }}
+  </div>
+  <div class="{{ 'has-error' if errors.get('trackers.ram.allowed_types') else '' }}">
+    <label>Allowed module types</label>
+    <div class="row">{% for t in module_types %}<label class="check"><input type="checkbox" name="trackers.ram.allowed_types" value="{{ t }}" {{ 'checked' if t in ram.allowed_types else '' }}> {{ t }}</label>{% endfor %}</div>
+    <div class="hint">SO-DIMM (laptop) modules are always rejected.</div>{{ error("trackers.ram.allowed_types") }}
+  </div>
+  {{ check("trackers.ram.allow_unknown_type", "Accept listings that don't say RDIMM / LRDIMM / UDIMM", ram.allow_unknown_type, "They are still rejected if they look like laptop memory.") }}
+  {{ check("trackers.ram.allow_unknown_speed", "Accept listings that don't state a speed", ram.allow_unknown_speed, "Off = strict: speed must be stated and at least the minimum.") }}
+  {{ check("trackers.ram.include_shipping", "Include shipping in the price", ram.include_shipping) }}
+  {{ check("trackers.ram.reject_untested", "Reject 'untested' and 'as-is' listings", ram.reject_untested, "For-parts / broken / not working listings are always rejected.") }}
+  {{ area("trackers.ram.exclude_keywords", "Also reject titles containing", ram.exclude_keywords|join(", "), "Comma or newline separated words/phrases") }}
+</fieldset>
+
+{% set cpu = settings.trackers.cpu %}
+<fieldset id="cpu">
+  <legend>Tracker: {{ cpu.label }}</legend>
+  {{ check("trackers.cpu.enabled", "Enabled", cpu.enabled) }}
+  {{ text("trackers.cpu.label", "Name", cpu.label) }}
+  {{ area("trackers.cpu.queries", "Search queries (one per line)", cpu.queries|join("\n")) }}
+  <div class="form-grid">
+    {{ text("trackers.cpu.model", "CPU model", cpu.model, "Title must mention this, e.g. 3975WX", "text") }}
+    {{ text("trackers.cpu.model_aliases", "Also accept part numbers", cpu.model_aliases|join(", "), "AMD OPNs that identify the same CPU") }}
+    {{ text("trackers.cpu.max_price", "Price per CPU must be below ($)", cpu.max_price, "", "number") }}
+    {{ text("trackers.cpu.min_price", "Reject below ($)", cpu.min_price, "Sanity floor for coolers, empty boxes and scams", "number") }}
+    {{ text("trackers.cpu.ebay_category_id", "eBay API category", cpu.ebay_category_id, "164 = CPUs/Processors; blank = all categories") }}
+  </div>
+  {{ select("trackers.cpu.lock_policy", "Vendor lock (AMD PSB)", lock_policies, cpu.lock_policy, "Threadripper PRO chips pulled from Lenovo P620s are usually permanently locked to Lenovo boards. Listings that say locked, mention PSB, or mention Lenovo/P620 without saying unlocked are always rejected.") }}
+  {{ check("trackers.cpu.include_shipping", "Include shipping in the price", cpu.include_shipping) }}
+  {{ check("trackers.cpu.reject_untested", "Reject 'untested' and 'as-is' listings", cpu.reject_untested, "For-parts / broken / bent pins / not working listings are always rejected.") }}
+  {{ area("trackers.cpu.exclude_keywords", "Also reject titles containing", cpu.exclude_keywords|join(", "), "Comma or newline separated words/phrases") }}
+</fieldset>
+
+<fieldset id="merchants">
+  <legend>Trusted merchants</legend>
+  <p class="hint">Only listings from these sellers are accepted. One per line: <code>Name | aliases | domains</code>. A listing is trusted when its link's domain matches (subdomains included), or, when Google hides the merchant link, when the seller name matches the name or an alias. A seller named like a trusted store but linking elsewhere is rejected as a possible impostor. Marketplace sellers ("eBay - someseller") are matched by the part before the dash.</p>
+  {{ area("merchants.trusted", "Trusted merchants", trusted_text, "", "tall") }}
+  <p><button class="btn small" formaction="/settings/restore-merchants" formmethod="post" onclick="return confirm('Replace the trusted list with the defaults?')">Restore default list</button></p>
+  {{ area("merchants.blocked", "Blocked sellers or domains (one per line)", settings.merchants.blocked|join("\n"), "Always rejected, even if they match the trusted list") }}
+  {{ check("general.allow_untrusted_merchants", "Accept sellers that are not on the trusted list", settings.general.allow_untrusted_merchants, "Not recommended: this is the main protection against scam sites.") }}
+  <h3>Marketplace seller reputation</h3>
+  <p class="hint">Applied when the source reports seller feedback (the eBay API does). Sellers below either limit are rejected.</p>
+  <div class="form-grid">
+    {{ text("general.min_seller_feedback_percent", "Minimum positive feedback (%)", settings.general.min_seller_feedback_percent, "", "number") }}
+    {{ text("general.min_seller_feedback_score", "Minimum number of ratings", settings.general.min_seller_feedback_score, "Filters out brand-new accounts", "number") }}
+  </div>
+</fieldset>
+
+<fieldset id="general">
+  <legend>General</legend>
+  <div class="form-grid">
+    {{ text("general.public_base_url", "Web UI address for email links", settings.general.public_base_url, "e.g. http://192.168.1.20:8000; blank = no link") }}
+    {{ text("general.retention_days", "Keep listing details for (days)", settings.general.retention_days, "Older per-scan details are pruned; listings and scan summaries are kept", "number") }}
+  </div>
+</fieldset>
+
+<div class="save-bar">
+  <button class="btn primary">Save settings</button>
+  <span class="hint">Changes apply to the next scan. Use “Replay with current settings” on any scan to preview their effect.</span>
+</div>
+</form>
+{% endblock %}

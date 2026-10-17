@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Rule tester{% endblock %}
+{% block content %}
+<h1>Rule tester</h1>
+<p class="muted">Paste a listing to see exactly how the current rules judge it. Nothing is saved and no API queries are used.</p>
+<form method="post" action="/playground" class="card">
+  <div class="form-grid">
+    <div><label for="tracker">Tracker</label>
+      <select id="tracker" name="tracker">{% for key, t in trackers.items() %}<option value="{{ key }}" {{ 'selected' if form.tracker == key }}>{{ t.label }}</option>{% endfor %}</select></div>
+    <div><label for="merchant">Seller (as Google shows it)</label><input id="merchant" type="text" name="merchant" value="{{ form.merchant }}"></div>
+    <div><label for="price">Price</label><input id="price" type="text" name="price" value="{{ form.price }}"></div>
+    <div><label for="shipping">Shipping / delivery</label><input id="shipping" type="text" name="shipping" value="{{ form.shipping }}"><div class="hint">e.g. "Free delivery" or "$9.99 delivery"</div></div>
+  </div>
+  <label for="title">Title</label><input id="title" type="text" name="title" value="{{ form.title }}">
+  <div class="form-grid">
+    <div><label for="link">Link</label><input id="link" type="text" name="link" value="{{ form.link }}"></div>
+    <div><label for="condition">Condition</label><input id="condition" type="text" name="condition" value="{{ form.condition }}"></div>
+  </div>
+  <label for="snippet">Snippet / description <span class="hint">(optional; only used for vendor-lock checks)</span></label>
+  <input id="snippet" type="text" name="snippet" value="{{ form.snippet }}">
+  <p><button class="btn primary">Test</button></p>
+</form>
+
+{% if result %}
+<h2>Result: {{ m.decision_badge(result.decision) }}{% if result.tier == 'preferred' %} <span class="badge info">preferred speed</span>{% endif %}</h2>
+<div class="grid">
+  <div class="card">
+    <h3>Reasons and notes</h3>
+    {% if result.reasons or result.notes %}{{ m.reasons_list(result.reasons, result.notes) }}{% else %}<p class="muted">Passes every rule.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h3>Parsed</h3>
+    <dl class="kv small">
+      <dt>Seller</dt><dd>{{ result.merchant }}{% if result.merchant_domain %} ({{ result.merchant_domain }}){% endif %}</dd>
+      <dt>Units</dt><dd>{{ result.units }}</dd>
+      <dt>Total</dt><dd>{{ result.total_price|money }}{% if offer.shipping is none %} (shipping unknown){% endif %}</dd>
+      <dt>Per unit</dt><dd>{{ result.unit_price|money }}</dd>
+      {% for k, v in result.attributes.items() %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}
+    </dl>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

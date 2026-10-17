@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Merchants{% endblock %}
+{% block content %}
+<h1>Merchants</h1>
+<p class="muted">Every seller that showed up in searches over the last {{ days }} days and whether it passes the trusted-merchant check. Only listings from trusted sellers can be accepted{% if settings.general.allow_untrusted_merchants %} (currently overridden: untrusted sellers are allowed){% endif %}. A seller is trusted when its link domain, or (if Google hides the link) its name, matches the <a href="/settings#merchants">trusted list</a>.</p>
+<div class="chips">
+  {% for d in [7, 30, 90, 365] %}<a class="chip {{ 'active' if days == d else '' }}" href="?days={{ d }}">{{ d }} days</a>{% endfor %}
+</div>
+<div class="table-wrap">
+<table class="data">
+  <thead><tr><th>Seller (as shown by Google)</th><th>Domain</th><th>Status</th><th class="num">Listings</th><th class="num">Accepted</th><th class="num">Rejected</th><th class="num">Lowest per unit</th><th>Last seen</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    {% set v = r.verdict %}
+    <tr>
+      <td><a href="/listings?{{ urlencode({'merchant': r.merchant}) }}">{{ r.merchant }}</a></td>
+      <td class="small">{{ r.domain or '—' }}</td>
+      <td>
+        {% if v.trusted %}<span class="badge ok">trusted</span> <span class="small muted">as {{ v.canonical }}</span>
+        {% elif v.code == 'merchant_blocked' %}<span class="badge bad">blocked</span>
+        {% elif v.code == 'merchant_mismatch' %}<span class="badge bad">name/link mismatch</span>
+        {% else %}<span class="badge warn">untrusted</span>{% endif %}
+      </td>
+      <td class="num">{{ r.seen }}</td>
+      <td class="num">{{ r.accepted or 0 }}</td>
+      <td class="num">{{ r.rejected or 0 }}{% if r.merchant_rejections %}<div class="small muted">{{ r.merchant_rejections }} for seller</div>{% endif %}</td>
+      <td class="num">{{ r.min_unit_price|money }}</td>
+      <td class="small nowrap">{{ r.last_seen|ago }}</td>
+      <td class="nowrap">
+        {% if v.code == 'merchant_untrusted' %}
+        <form class="inline" method="post" action="/merchants/trust">
+          <input type="hidden" name="merchant" value="{{ r.merchant }}"><input type="hidden" name="domain" value="{{ r.domain or '' }}">
+          <button class="btn small" title="Add to the trusted list">Trust</button>
+        </form>
+        {% endif %}
+        {% if v.code != 'merchant_blocked' %}
+        {# Blocking a trusted store's domain would block every seller on it, so block those by seller name. #}
+        {% set block_value = r.merchant if v.trusted else (r.domain or r.merchant) %}
+        <form class="inline" method="post" action="/merchants/block">
+          <input type="hidden" name="value" value="{{ block_value }}">
+          <button class="btn small danger" title="Never accept listings from {{ block_value }}">Block</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="9" class="muted">No sellers seen in this period.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h2>Blocked</h2>
+{% if settings.merchants.blocked %}
+<div class="chips">
+  {% for b in settings.merchants.blocked %}
+  <form class="inline" method="post" action="/merchants/unblock"><input type="hidden" name="value" value="{{ b }}">
+    <span class="chip">{{ b }} <button class="btn small" style="margin-left:6px">Unblock</button></span></form>
+  {% endfor %}
+</div>
+{% else %}<p class="muted">Nothing blocked.</p>{% endif %}
+
+<h2>Trusted list <span class="muted small">{{ settings.merchants.trusted|length }} merchants</span></h2>
+<p class="small">{% for t in settings.merchants.trusted %}{{ t.name }}{{ ", " if not loop.last }}{% endfor %}</p>
+<p class="small muted">Edit the list in <a href="/settings#merchants">Settings</a>.</p>
+{% endblock %}

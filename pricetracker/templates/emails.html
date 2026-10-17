@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Emails{% endblock %}
+{% block content %}
+<h1>Emails</h1>
+{% if email_problem %}
+<div class="flash warn">Emails cannot be sent right now: {{ email_problem }}. <a href="/settings#email">Fix in Settings</a></div>
+{% else %}
+<p class="muted">Match emails go to <b>{{ settings.email.to }}</b> via {{ 'Resend' if settings.email.method == 'resend' else settings.email.smtp_host }}. One email per scan lists every new match (and price drops{% if not settings.email.renotify_on_price_drop %}, currently off{% endif %}).</p>
+{% endif %}
+<div class="table-wrap">
+<table class="data">
+  <thead><tr><th>When</th><th>Kind</th><th>Scan</th><th>To</th><th>Subject</th><th class="num">Listings</th><th>Status</th><th>Body</th></tr></thead>
+  <tbody>
+  {% for n in notifications %}
+    <tr>
+      <td class="nowrap small">{{ n.created_at|dt }}</td>
+      <td>{{ n.kind }}</td>
+      <td>{% if n.run_id %}<a href="/runs/{{ n.run_id }}">#{{ n.run_id }}</a>{% endif %}</td>
+      <td class="small">{{ n.recipient }}</td>
+      <td>{{ n.subject }}</td>
+      <td class="num">{{ n.listing_count }}</td>
+      <td><span class="badge {{ {'sent': 'ok', 'failed': 'bad', 'skipped': 'warn'}.get(n.status, '') }}">{{ n.status }}</span>{% if n.error %}<div class="small">{{ n.error }}</div>{% endif %}</td>
+      <td>{% if n.body_text %}<details><summary class="small">view</summary><pre>{{ n.body_text }}</pre></details>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="muted">No emails yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

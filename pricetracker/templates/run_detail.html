@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Scan #{{ run.id }}{% endblock %}
+{% block head %}{% if run.status == 'running' %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block content %}
+<div class="row spread">
+  <h1>Scan #{{ run.id }} {{ m.status_badge(run.status) }}</h1>
+  {% if run.status != 'running' %}<a class="btn" href="/runs/{{ run.id }}/replay" title="Re-check this scan's results with your current settings; nothing is saved or emailed">Replay with current settings</a>{% endif %}
+</div>
+
+<div class="grid">
+  <div class="card">
+    <dl class="kv">
+      <dt>Started</dt><dd>{{ run.started_at|dt }}</dd>
+      <dt>Finished</dt><dd>{{ run.finished_at|dt }} {% if run.finished_at %}({{ duration(run.started_at, run.finished_at) }}){% endif %}</dd>
+      <dt>Trigger</dt><dd>{{ run.trigger }}{% if not run.send_email %} (email off){% endif %}</dd>
+      <dt>Sources</dt><dd>{{ run.provider }}</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <dl class="kv">
+      <dt>Searches</dt><dd>{{ run.query_count }}{% if run.query_errors %} ({{ run.query_errors }} failed){% endif %}</dd>
+      <dt>Results</dt><dd>{{ run.result_count }} returned, {{ total_observations }} unique</dd>
+      <dt>Decisions</dt><dd><span class="badge ok">{{ run.accepted_count }} accepted</span> <span class="badge bad">{{ run.rejected_count }} rejected</span></dd>
+      <dt>Email</dt><dd>{{ run.email_status or '—' }}</dd>
+    </dl>
+  </div>
+</div>
+{% if run.error %}<div class="flash bad" style="margin-top:12px">{{ run.error }}</div>{% endif %}
+
+<h2>Searches sent</h2>
+<div class="table-wrap">
+<table class="data">
+  <thead><tr><th>Tracker</th><th>Source</th><th>Query</th><th>Request</th><th class="num">Time</th><th class="num">Results</th><th class="num">Unique</th><th class="num">Accepted</th><th>Problems</th></tr></thead>
+  <tbody>
+  {% for q in queries %}
+    <tr>
+      <td>{{ q.tracker }}</td>
+      <td class="nowrap">{{ q.provider }}</td>
+      <td>{{ q.query }}</td>
+      <td><details><summary class="small">show</summary><code class="small request">{{ q.request }}</code></details></td>
+      <td class="num">{% if q.duration_ms is not none %}{{ (q.duration_ms / 1000)|round(1) }}s{% endif %}</td>
+      <td class="num">{{ q.result_count if q.result_count is not none else '—' }}</td>
+      <td class="num">{{ q.kept }}</td>
+      <td class="num">{{ q.accepted }}</td>
+      <td>{% if q.error %}<span class="badge bad">error</span> <span class="small">{{ q.error }}</span>{% endif %}{% if q.note %}<span class="badge warn">note</span> <span class="small">{{ q.note }}</span>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="9" class="muted">{{ 'Waiting for the first query…' if run.status == 'running' else 'No queries were sent.' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h2>Listings found</h2>
+{% set base = "/runs/" ~ run.id %}
+<div class="chips">
+  {% for value, label in [("", "All"), ("accepted", "Accepted"), ("rejected", "Rejected")] %}
+  <a class="chip {{ 'active' if filters.decision == value else '' }}" href="{{ base }}?{{ urlencode({'decision': value, 'tracker': filters.tracker}) }}">{{ label }}</a>
+  {% endfor %}
+  <span class="muted">·</span>
+  <a class="chip {{ 'active' if not filters.tracker else '' }}" href="{{ base }}?{{ urlencode({'decision': filters.decision}) }}">All trackers</a>
+  {% for key, t in trackers.items() %}
+  <a class="chip {{ 'active' if filters.tracker == key else '' }}" href="{{ base }}?{{ urlencode({'decision': filters.decision, 'tracker': key}) }}">{{ t.label }}</a>
+  {% endfor %}
+</div>
+{% if reason_counts %}
+<div class="small muted">Rejection reasons in this scan (a listing can have several):</div>
+<div class="chips">
+  {% for code, count in reason_counts %}
+  <a class="chip {{ 'active' if filters.reason == code else '' }}" href="{{ base }}?{{ urlencode({'reason': '' if filters.reason == code else code, 'tracker': filters.tracker}) }}">{{ reason_labels.get(code, code) }}<span class="count">{{ count }}</span></a>
+  {% endfor %}
+</div>
+{% endif %}
+<p class="small muted">Showing {{ observations|length }} of {{ total_observations }}.</p>
+{{ m.observation_table(observations) }}
+
+<h2>Log</h2>
+<pre>{{ run.log or '(empty)' }}</pre>
+{% endblock %}
