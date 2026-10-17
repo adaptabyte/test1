@@ -1,4 +1,4 @@
-"""Build and send match emails over SMTP."""
+"""Build match emails and send them with Resend (default) or SMTP."""
 
 from __future__ import annotations
 
@@ -8,7 +8,13 @@ import ssl
 from email.message import EmailMessage
 from email.utils import make_msgid
 
+import httpx
+
 from .rules import unit_name
+from .settings import RESEND_DEFAULT_FROM
+
+RESEND_URL = "https://api.resend.com/emails"
+http_transport: httpx.BaseTransport | None = None  # tests swap in a mock transport
 
 
 class EmailError(Exception):
@@ -25,6 +31,8 @@ def config_problem(email_cfg: dict) -> str:
         return "Email notifications are turned off in Settings"
     if not recipients(email_cfg):
         return "No recipient address set"
+    if email_cfg["method"] == "resend":
+        return "" if email_cfg["resend_api_key"] else "Resend API key not set (Settings > Email, or RESEND_API_KEY)"
     if not email_cfg["smtp_host"]:
         return "SMTP server not set"
     if not email_cfg["smtp_username"] and not email_cfg["from_address"]:
@@ -139,9 +147,46 @@ def build_email(matches: list[dict], settings: dict, run_id: int | None, demo: b
     return subject, "\n".join(text_lines).strip() + "\n", "".join(html_parts)
 
 
+def sender_address(email_cfg: dict) -> str:
+    if email_cfg["from_address"]:
+        return email_cfg["from_address"]
+    return RESEND_DEFAULT_FROM if email_cfg["method"] == "resend" else email_cfg["smtp_username"]
+
+
 def send_email(email_cfg: dict, subject: str, text: str, html_body: str | None = None) -> None:
+    if email_cfg["method"] == "resend":
+        _send_resend(email_cfg, subject, text, html_body)
+    else:
+        _send_smtp(email_cfg, subject, text, html_body)
+
+
+def _send_resend(email_cfg: dict, subject: str, text: str, html_body: str | None) -> None:
+    payload = {"from": sender_address(email_cfg), "to": recipients(email_cfg), "subject": subject, "text": text}
+    if html_body:
+        payload["html"] = html_body
+    headers = {"Authorization": f"Bearer {email_cfg['resend_api_key']}"}
+    try:
+        with httpx.Client(transport=http_transport, timeout=30) as client:
+            response = client.post(RESEND_URL, json=payload, headers=headers)
+    except httpx.HTTPError as exc:
+        raise EmailError(f"Could not reach Resend: {exc.__class__.__name__}: {exc}") from exc
+    if response.status_code >= 400:
+        try:
+            message = response.json().get("message") or response.text
+        except ValueError:
+            message = response.text
+        hint = ""
+        if response.status_code == 403 and "resend.dev" in sender_address(email_cfg):
+            hint = (
+                " (the shared onboarding@resend.dev sender can only email the address your Resend account was "
+                "created with; verify a domain in Resend to email anyone else)"
+            )
+        raise EmailError(f"Resend HTTP {response.status_code}: {str(message)[:300]}{hint}")
+
+
+def _send_smtp(email_cfg: dict, subject: str, text: str, html_body: str | None) -> None:
     to = recipients(email_cfg)
-    sender = email_cfg["from_address"] or email_cfg["smtp_username"]
+    sender = sender_address(email_cfg)
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = sender

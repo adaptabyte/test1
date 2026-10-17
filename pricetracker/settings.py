@@ -8,25 +8,45 @@ import os
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .config import SECRET_ENV_VARS
+from .config import ENV_FALLBACKS
 from .merchants import DEFAULT_TRUSTED_MERCHANTS
 
 DEFAULT_SETTINGS: dict = {
-    "provider": {
-        "name": "serpapi",  # serpapi | serper | demo
-        "serpapi_api_key": "",
-        "serper_api_key": "",
-        "country": "us",
-        "language": "en",
-        "location": "",
-        "results_per_query": 60,
-        "timeout_seconds": 45,
+    "sources": {
+        "searxng": {
+            "enabled": True,
+            "base_url": "",  # docker-compose sets SEARXNG_URL=http://searxng:8080
+            "use_ebay_engine": True,
+            "use_web_search": True,
+            "web_engines": "duckduckgo,brave,bing,google",
+            "restrict_to_sites": [
+                "ebay.com",
+                "newegg.com",
+                "amazon.com",
+                "walmart.com",
+                "bestbuy.com",
+                "bhphotovideo.com",
+                "microcenter.com",
+                "poshmark.com",
+                "mercari.com",
+            ],
+            "web_pages": 1,
+            "fetch_product_pages": True,
+            "max_page_fetches": 80,
+        },
+        "ebay_api": {"enabled": False, "client_id": "", "client_secret": ""},
+        "serpapi": {"enabled": False, "api_key": ""},
+        "serper": {"enabled": False, "api_key": ""},
+        "demo": {"enabled": False},
     },
+    "search": {"country": "us", "language": "en", "location": "", "results_per_query": 60, "timeout_seconds": 45},
     "schedule": {"enabled": True, "times": ["08:00", "20:00"], "timezone": "America/New_York"},
     "email": {
         "enabled": True,
+        "method": "resend",  # resend | smtp
         "to": "adaptabyte@gmail.com",
-        "from_address": "",
+        "from_address": "",  # blank: Resend's shared sender, or the SMTP username
+        "resend_api_key": "",
         "smtp_host": "smtp.gmail.com",
         "smtp_port": 587,
         "smtp_security": "starttls",  # starttls | ssl | none
@@ -39,6 +59,8 @@ DEFAULT_SETTINGS: dict = {
         "public_base_url": "",
         "retention_days": 90,
         "allow_untrusted_merchants": False,
+        "min_seller_feedback_percent": 97.0,
+        "min_seller_feedback_score": 10,
     },
     "merchants": {"trusted": DEFAULT_TRUSTED_MERCHANTS, "blocked": []},
     "trackers": {
@@ -63,6 +85,7 @@ DEFAULT_SETTINGS: dict = {
             "include_shipping": True,
             "reject_untested": True,
             "exclude_keywords": ["motherboard", "combo", "bundle", "barebone"],
+            "ebay_category_id": "170083",  # Computer Components > Memory (RAM)
         },
         "cpu": {
             "enabled": True,
@@ -76,11 +99,13 @@ DEFAULT_SETTINGS: dict = {
             "include_shipping": True,
             "reject_untested": True,
             "exclude_keywords": [],
+            "ebay_category_id": "164",  # Computer Components > CPUs/Processors
         },
     },
 }
 
-PROVIDERS = {"serpapi": "SerpApi", "serper": "Serper.dev", "demo": "Demo data (no API calls)"}
+EMAIL_METHODS = {"resend": "Resend (API key)", "smtp": "SMTP server (e.g. Gmail)"}
+RESEND_DEFAULT_FROM = "Price Tracker <onboarding@resend.dev>"
 MODULE_TYPES = ["RDIMM", "LRDIMM", "UDIMM"]
 LOCK_POLICIES = {
     "reject_locked": "Reject listings that say or suggest they are vendor locked (recommended)",
@@ -113,29 +138,39 @@ def save_settings(db, settings: dict) -> None:
     db.save_settings_blob(json.dumps(settings, indent=2, sort_keys=True))
 
 
+def _get(settings: dict, path: tuple[str, ...]):
+    value = settings
+    for key in path:
+        value = value[key]
+    return value
+
+
 def effective_settings(settings: dict) -> dict:
-    """Settings with secrets filled in from environment variables where Settings leaves them empty."""
+    """Settings with secrets and deployment values filled in from the environment where Settings is blank."""
     result = copy.deepcopy(settings)
-    for (section, key), env_var in SECRET_ENV_VARS.items():
-        if not result[section].get(key) and os.environ.get(env_var):
-            result[section][key] = os.environ[env_var]
+    for path, env_var in ENV_FALLBACKS.items():
+        parent = _get(result, path[:-1])
+        if not parent.get(path[-1]) and os.environ.get(env_var):
+            parent[path[-1]] = os.environ[env_var]
     return result
 
 
-def secret_source(settings: dict, section: str, key: str) -> str:
-    """Where a secret comes from: 'settings', 'env:<VAR>', or '' when unset."""
-    if settings[section].get(key):
+def value_source(settings: dict, path: tuple[str, ...]) -> str:
+    """Where a value comes from: 'settings', 'env:<VAR>', or '' when unset."""
+    if _get(settings, path):
         return "settings"
-    env_var = SECRET_ENV_VARS.get((section, key))
+    env_var = ENV_FALLBACKS.get(path)
     if env_var and os.environ.get(env_var):
         return f"env:{env_var}"
     return ""
 
 
-def queries_per_month(settings: dict) -> int:
+def paid_requests_per_month(settings: dict) -> int:
+    """Requests a month sent to paid sources (SerpApi / Serper); the free sources have no quota to plan for."""
     queries = sum(len(t["queries"]) for t in settings["trackers"].values() if t["enabled"])
     runs_per_day = len(settings["schedule"]["times"]) if settings["schedule"]["enabled"] else 0
-    return queries * runs_per_day * 30
+    paid = sum(1 for name in ("serpapi", "serper") if settings["sources"][name]["enabled"])
+    return queries * runs_per_day * 30 * paid
 
 
 # --- Form parsing -------------------------------------------------------------------------------
@@ -205,15 +240,38 @@ def settings_from_form(form, current: dict) -> tuple[dict, dict[str, str]]:
     f = _Form(form)
     new = copy.deepcopy(current)
 
-    provider = new["provider"]
-    provider["name"] = f.choice("provider.name", PROVIDERS)
-    for key in ("serpapi_api_key", "serper_api_key"):
-        _apply_secret(f, provider, "provider", key)
-    provider["country"] = f.text("provider.country").lower() or "us"
-    provider["language"] = f.text("provider.language").lower() or "en"
-    provider["location"] = f.text("provider.location")
-    provider["results_per_query"] = f.number("provider.results_per_query", 10, 100, integer=True)
-    provider["timeout_seconds"] = f.number("provider.timeout_seconds", 5, 300, integer=True)
+    sources = new["sources"]
+    sx = sources["searxng"]
+    sx["enabled"] = f.flag("sources.searxng.enabled")
+    sx["base_url"] = f.text("sources.searxng.base_url").rstrip("/")
+    if sx["base_url"] and not re.match(r"https?://", sx["base_url"]):
+        f.errors["sources.searxng.base_url"] = "Enter a URL starting with http:// or https://"
+    sx["use_ebay_engine"] = f.flag("sources.searxng.use_ebay_engine")
+    sx["use_web_search"] = f.flag("sources.searxng.use_web_search")
+    sx["web_engines"] = ",".join(_keywords(f.text("sources.searxng.web_engines")))
+    if sx["enabled"] and sx["use_web_search"] and not sx["web_engines"]:
+        f.errors["sources.searxng.web_engines"] = "List at least one engine, e.g. duckduckgo, brave"
+    sx["restrict_to_sites"] = [d.lower() for d in _keywords(f.text("sources.searxng.restrict_to_sites"))]
+    sx["web_pages"] = f.number("sources.searxng.web_pages", 1, 5, integer=True)
+    sx["fetch_product_pages"] = f.flag("sources.searxng.fetch_product_pages")
+    sx["max_page_fetches"] = f.number("sources.searxng.max_page_fetches", 0, 1000, integer=True)
+    ebay = sources["ebay_api"]
+    ebay["enabled"] = f.flag("sources.ebay_api.enabled")
+    _apply_secret(f, ebay, "sources.ebay_api", "client_id", secret=False)
+    _apply_secret(f, ebay, "sources.ebay_api", "client_secret")
+    for name in ("serpapi", "serper"):
+        sources[name]["enabled"] = f.flag(f"sources.{name}.enabled")
+        _apply_secret(f, sources[name], f"sources.{name}", "api_key")
+    sources["demo"]["enabled"] = f.flag("sources.demo.enabled")
+    if not any(sources[name]["enabled"] for name in sources):
+        f.errors["sources"] = "Enable at least one search source"
+
+    search = new["search"]
+    search["country"] = f.text("search.country").lower() or "us"
+    search["language"] = f.text("search.language").lower() or "en"
+    search["location"] = f.text("search.location")
+    search["results_per_query"] = f.number("search.results_per_query", 10, 200, integer=True)
+    search["timeout_seconds"] = f.number("search.timeout_seconds", 5, 300, integer=True)
 
     schedule = new["schedule"]
     schedule["enabled"] = f.flag("schedule.enabled")
@@ -235,6 +293,8 @@ def settings_from_form(form, current: dict) -> tuple[dict, dict[str, str]]:
     recipients = _keywords(email["to"])
     if not recipients or any(not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", r) for r in recipients):
         f.errors["email.to"] = "Enter one or more email addresses separated by commas"
+    email["method"] = f.choice("email.method", EMAIL_METHODS)
+    _apply_secret(f, email, "email", "resend_api_key")
     email["from_address"] = f.text("email.from_address")
     email["smtp_host"] = f.text("email.smtp_host")
     email["smtp_port"] = f.number("email.smtp_port", 1, 65535, integer=True)
@@ -248,6 +308,8 @@ def settings_from_form(form, current: dict) -> tuple[dict, dict[str, str]]:
     general["public_base_url"] = f.text("general.public_base_url").rstrip("/")
     general["retention_days"] = f.number("general.retention_days", 7, 3650, integer=True)
     general["allow_untrusted_merchants"] = f.flag("general.allow_untrusted_merchants")
+    general["min_seller_feedback_percent"] = f.number("general.min_seller_feedback_percent", 0, 100)
+    general["min_seller_feedback_score"] = f.number("general.min_seller_feedback_score", 0, 1_000_000, integer=True)
 
     new["merchants"]["trusted"] = parse_trusted_merchants(f.text("merchants.trusted"))
     new["merchants"]["blocked"] = _lines(f.text("merchants.blocked"))
@@ -289,6 +351,9 @@ def settings_from_form(form, current: dict) -> tuple[dict, dict[str, str]]:
     for key, tracker in new["trackers"].items():
         label = f.text(f"trackers.{key}.label")
         tracker["label"] = label or tracker["label"]
+        tracker["ebay_category_id"] = f.text(f"trackers.{key}.ebay_category_id")
+        if tracker["ebay_category_id"] and not tracker["ebay_category_id"].isdigit():
+            f.errors[f"trackers.{key}.ebay_category_id"] = "eBay category IDs are numbers (blank = all categories)"
         if tracker["enabled"] and not tracker["queries"]:
             f.errors[f"trackers.{key}.queries"] = "Add at least one search query (or disable the tracker)"
 

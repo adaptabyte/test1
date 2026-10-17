@@ -14,12 +14,12 @@
       <dt>Started</dt><dd>{{ run.started_at|dt }}</dd>
       <dt>Finished</dt><dd>{{ run.finished_at|dt }} {% if run.finished_at %}({{ duration(run.started_at, run.finished_at) }}){% endif %}</dd>
       <dt>Trigger</dt><dd>{{ run.trigger }}{% if not run.send_email %} (email off){% endif %}</dd>
-      <dt>Provider</dt><dd>{{ run.provider }}</dd>
+      <dt>Sources</dt><dd>{{ run.provider }}</dd>
     </dl>
   </div>
   <div class="card">
     <dl class="kv">
-      <dt>Queries</dt><dd>{{ run.query_count }}{% if run.query_errors %} ({{ run.query_errors }} failed){% endif %}</dd>
+      <dt>Searches</dt><dd>{{ run.query_count }}{% if run.query_errors %} ({{ run.query_errors }} failed){% endif %}</dd>
       <dt>Results</dt><dd>{{ run.result_count }} returned, {{ total_observations }} unique</dd>
       <dt>Decisions</dt><dd><span class="badge ok">{{ run.accepted_count }} accepted</span> <span class="badge bad">{{ run.rejected_count }} rejected</span></dd>
       <dt>Email</dt><dd>{{ run.email_status or '—' }}</dd>
@@ -28,24 +28,25 @@
 </div>
 {% if run.error %}<div class="flash bad" style="margin-top:12px">{{ run.error }}</div>{% endif %}
 
-<h2>Queries sent</h2>
+<h2>Searches sent</h2>
 <div class="table-wrap">
 <table class="data">
-  <thead><tr><th>Tracker</th><th>Query</th><th>Request</th><th class="num">Time</th><th class="num">Results</th><th class="num">Unique</th><th class="num">Accepted</th><th>Error</th></tr></thead>
+  <thead><tr><th>Tracker</th><th>Source</th><th>Query</th><th>Request</th><th class="num">Time</th><th class="num">Results</th><th class="num">Unique</th><th class="num">Accepted</th><th>Problems</th></tr></thead>
   <tbody>
   {% for q in queries %}
     <tr>
       <td>{{ q.tracker }}</td>
+      <td class="nowrap">{{ q.provider }}</td>
       <td>{{ q.query }}</td>
       <td><code class="small">{{ q.request }}</code></td>
       <td class="num">{% if q.duration_ms is not none %}{{ (q.duration_ms / 1000)|round(1) }}s{% endif %}</td>
       <td class="num">{{ q.result_count if q.result_count is not none else '—' }}</td>
       <td class="num">{{ q.kept }}</td>
       <td class="num">{{ q.accepted }}</td>
-      <td>{% if q.error %}<span class="badge bad">error</span> <span class="small">{{ q.error }}</span>{% endif %}</td>
+      <td>{% if q.error %}<span class="badge bad">error</span> <span class="small">{{ q.error }}</span>{% endif %}{% if q.note %}<span class="badge warn">note</span> <span class="small">{{ q.note }}</span>{% endif %}</td>
     </tr>
   {% else %}
-    <tr><td colspan="8" class="muted">{{ 'Waiting for the first query…' if run.status == 'running' else 'No queries were sent.' }}</td></tr>
+    <tr><td colspan="9" class="muted">{{ 'Waiting for the first query…' if run.status == 'running' else 'No queries were sent.' }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

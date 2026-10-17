@@ -5,7 +5,7 @@
 {% if email_problem %}
 <div class="flash warn">Emails cannot be sent right now: {{ email_problem }}. <a href="/settings#email">Fix in Settings</a></div>
 {% else %}
-<p class="muted">Match emails go to <b>{{ settings.email.to }}</b> via {{ settings.email.smtp_host }}. One email per scan lists every new match (and price drops{% if not settings.email.renotify_on_price_drop %}, currently off{% endif %}).</p>
+<p class="muted">Match emails go to <b>{{ settings.email.to }}</b> via {{ 'Resend' if settings.email.method == 'resend' else settings.email.smtp_host }}. One email per scan lists every new match (and price drops{% if not settings.email.renotify_on_price_drop %}, currently off{% endif %}).</p>
 {% endif %}
 <div class="table-wrap">
 <table class="data">

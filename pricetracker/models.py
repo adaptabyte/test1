@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Offer:
-    """One merchant offer from a Google Shopping result, normalized across providers."""
+    """One merchant offer from any search source, normalized."""
 
     title: str
     merchant: str
@@ -16,7 +16,7 @@ class Offer:
     currency: str = "USD"
     shipping: float | None = None  # None means the listing did not say
     shipping_text: str = ""
-    link: str = ""  # best link for a human: merchant page if known, else Google product page
+    link: str = ""  # best link for a human: the listing page if known, else a Google product page
     merchant_url: str = ""  # direct merchant URL, when the provider returned one
     product_id: str = ""
     condition: str = ""
@@ -25,6 +25,12 @@ class Offer:
     thumbnail: str = ""
     multiple_sources: bool = False
     position: int = 0
+    availability: str = ""  # e.g. "InStock", "OutOfStock" when the source says
+    seller_feedback_percent: float | None = None  # marketplace seller rating, when known (eBay API)
+    seller_feedback_score: int | None = None
+    ships_from: str = ""
+    price_problem: str = ""  # why no price could be read, shown in the rejection reason
+    not_listing_reason: str = ""  # set when the result is a search/category/article page, not a listing
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:

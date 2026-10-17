@@ -14,10 +14,15 @@ PORT = int(os.environ.get("TRACKER_PORT", "8000"))
 UI_USERNAME = os.environ.get("TRACKER_UI_USERNAME", "admin")
 UI_PASSWORD = os.environ.get("TRACKER_UI_PASSWORD", "")
 
-# Secrets may come from the environment instead of the Settings page. A value saved in Settings wins.
-SECRET_ENV_VARS = {
-    ("provider", "serpapi_api_key"): "SERPAPI_API_KEY",
-    ("provider", "serper_api_key"): "SERPER_API_KEY",
+# Secrets and deployment-specific values may come from the environment instead of the Settings page.
+# A value saved in Settings wins.
+ENV_FALLBACKS = {
+    ("sources", "searxng", "base_url"): "SEARXNG_URL",
+    ("sources", "ebay_api", "client_id"): "EBAY_CLIENT_ID",
+    ("sources", "ebay_api", "client_secret"): "EBAY_CLIENT_SECRET",
+    ("sources", "serpapi", "api_key"): "SERPAPI_API_KEY",
+    ("sources", "serper", "api_key"): "SERPER_API_KEY",
+    ("email", "resend_api_key"): "RESEND_API_KEY",
     ("email", "smtp_username"): "SMTP_USERNAME",
     ("email", "smtp_password"): "SMTP_PASSWORD",
 }

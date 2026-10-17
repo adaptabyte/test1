@@ -15,3 +15,7 @@ ignore = ["RUF001", "RUF003"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff.lint.per-file-ignores]
+# Test fixtures hold realistic one-line JSON/HTML payloads.
+"tests/*" = ["E501"]

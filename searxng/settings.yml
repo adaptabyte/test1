@@ -1,0 +1,47 @@
+# SearXNG settings for the price tracker. This instance is private: docker-compose.yml does not
+# publish it, only the tracker container talks to it. Everything not set here uses SearXNG's defaults.
+use_default_settings: true
+
+general:
+  instance_name: "price-tracker-search"
+
+search:
+  safe_search: 0
+  # The tracker reads results as JSON.
+  formats:
+    - html
+    - json
+
+server:
+  # secret_key comes from the SEARXNG_SECRET environment variable (see docker-compose.yml).
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+engines:
+  # eBay search results with prices. Upstream's search_url sends the page number as the category
+  # (&_sacat=1 is eBay's Collectibles category), so override it: all categories, Buy It Now only.
+  # The XPaths accept both eBay's older "s-item" and newer "s-card" result markup.
+  - name: ebay
+    inactive: false
+    disabled: false
+    timeout: 10
+    search_url: "/sch/i.html?_nkw={query}&_sacat=0&LH_BIN=1&_ipg=120&_pgn={pageno}"
+    results_xpath: '//li[contains(@class, "s-item") or contains(@class, "s-card")]'
+    url_xpath: '(.//a[contains(@href, "/itm/")])[1]/@href'
+    title_xpath: '(.//*[contains(@class, "s-item__title") or contains(@class, "s-card__title")])[1]'
+    content_xpath: '(.//*[contains(@class, "SECONDARY_INFO") or contains(@class, "s-card__subtitle")])[1]'
+    price_xpath: '(.//*[contains(@class, "s-item__price") or contains(@class, "s-card__price")])[1]'
+    shipping_xpath: '(.//*[contains(@class, "s-item__shipping") or contains(@class, "s-item__logisticsCost")] | .//span[contains(., "delivery") or contains(., "shipping")])[1]'
+    source_country_xpath: '(.//*[contains(@class, "s-item__location") or contains(@class, "s-item__itemLocation")] | .//span[starts-with(normalize-space(.), "from ")])[1]'
+    thumbnail_xpath: '(.//img/@src)[1]'
+
+  # Web engines the tracker uses by default (Settings > Search sources > Web search engines).
+  - name: duckduckgo
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: google
+    disabled: false

@@ -1,4 +1,4 @@
-"""Run a scan: search Google Shopping for every tracker, evaluate each offer, store, and email matches."""
+"""Run a scan: send every tracker query to every search source, evaluate, store, and email matches."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ from .db import Database, utcnow
 from .merchants import domain_of
 from .models import Evaluation, Offer
 from .notifier import EmailError, build_email, config_problem, recipients, send_email
-from .providers import ProviderError, get_provider, offer_from_serpapi, offer_from_serper
 from .rules import evaluate
 from .rules.common import norm
 from .settings import effective_settings, load_settings
+from .sources import ProviderError, build_sources, ebay_item_id, enabled_source_classes, offer_from_raw
 
 _scan_lock = threading.Lock()
 
@@ -34,7 +34,11 @@ def is_running() -> bool:
 def listing_keys(tracker: str, offer: Offer) -> tuple[str, str]:
     """(key, dedupe_key). `key` identifies one offer across runs; `dedupe_key` groups same seller + title."""
     seller = offer.merchant.strip().lower() or domain_of(offer.link)
-    if offer.product_id:
+    item_id = ebay_item_id(offer.merchant_url or offer.link)
+    if item_id:
+        # The same eBay item can come from several sources under different seller labels.
+        seller, ident = "ebay", "ebay-item:" + item_id
+    elif offer.product_id:
         ident = "pid:" + offer.product_id
     elif offer.merchant_url:
         parsed = urlparse(offer.merchant_url)
@@ -46,10 +50,6 @@ def listing_keys(tracker: str, offer: Offer) -> tuple[str, str]:
         return hashlib.sha1(value.encode()).hexdigest()[:24]
 
     return digest(f"{tracker}|{seller}|{ident}"), digest(f"{tracker}|{seller}|{norm(offer.title)}")
-
-
-def offer_from_raw(provider_name: str, raw: dict) -> Offer:
-    return offer_from_serper(raw) if provider_name == "serper" else offer_from_serpapi(raw)
 
 
 def observation_record(tracker: str, offer: Offer, ev: Evaluation) -> dict:
@@ -91,8 +91,11 @@ class _RunLog:
         return "\n".join(self.lines)
 
 
-def start_scan(db: Database, trigger: str, send_email: bool = True, provider=None, background: bool = False) -> int:
-    """Start a scan and return its run id. With background=True the work happens in a thread."""
+def start_scan(db: Database, trigger: str, send_email: bool = True, sources=None, background: bool = False) -> int:
+    """Start a scan and return its run id. With background=True the work happens in a thread.
+
+    `sources` overrides the configured search sources (used by tests).
+    """
     if not _scan_lock.acquire(blocking=False):
         raise ScanAlreadyRunning("A scan is already running")
     try:
@@ -102,14 +105,15 @@ def start_scan(db: Database, trigger: str, send_email: bool = True, provider=Non
         if other and other["started_at"] > recent:
             raise ScanAlreadyRunning(f"Scan #{other['id']} is already running")
         settings = effective_settings(load_settings(db))
-        run_id = db.create_run(trigger, settings["provider"]["name"], send_email)
+        names = [s.name for s in sources] if sources is not None else [c.name for c in enabled_source_classes(settings)]
+        run_id = db.create_run(trigger, ", ".join(names) or "none", send_email)
     except BaseException:
         _scan_lock.release()
         raise
 
     def work() -> None:
         try:
-            _execute(db, run_id, settings, send_email, provider)
+            _execute(db, run_id, settings, send_email, sources)
         finally:
             _scan_lock.release()
 
@@ -120,25 +124,33 @@ def start_scan(db: Database, trigger: str, send_email: bool = True, provider=Non
     return run_id
 
 
-def _execute(db: Database, run_id: int, settings: dict, send_email_enabled: bool, provider) -> None:
+def _execute(db: Database, run_id: int, settings: dict, send_email_enabled: bool, sources) -> None:
     log = _RunLog(db, run_id)
     counts: Counter = Counter()
     try:
-        provider = provider or get_provider(settings["provider"])
-        log(f"Provider: {provider.name}; trigger email: {'yes' if send_email_enabled else 'no'}", flush=True)
-        matches = _search_all(db, run_id, settings, provider, counts, log)
-        email_status = _notify(db, run_id, settings, matches, send_email_enabled, provider.name == "demo", log)
+        problems: list[str] = []
+        if sources is None:
+            sources, problems = build_sources(settings)
+        for problem in problems:
+            log(f"Source not used: {problem}")
+        if not sources:
+            raise ProviderError("; ".join(problems) or "No search sources are enabled (Settings > Search sources)")
+        log(f"Sources: {', '.join(s.name for s in sources)}; email: {'yes' if send_email_enabled else 'no'}", True)
+        matches = _search_all(db, run_id, settings, sources, counts, log)
+        demo = any(s.name == "demo" for s in sources)
+        email_status = _notify(db, run_id, settings, matches, send_email_enabled, demo, log)
         cutoff = datetime.now(UTC) - timedelta(days=int(settings["general"]["retention_days"]))
         pruned = db.prune(cutoff.isoformat(timespec="seconds"))
         if pruned:
             log(f"Pruned {pruned} observations older than {settings['general']['retention_days']} days")
         if counts["queries"] and counts["query_errors"] == counts["queries"]:
             status = "failed"
-        elif counts["query_errors"]:
+        elif counts["query_errors"] or problems:
             status = "partial"
         else:
             status = "ok"
-        error = f"{counts['query_errors']} of {counts['queries']} queries failed" if counts["query_errors"] else None
+        errors = [f"{counts['query_errors']} of {counts['queries']} searches failed"] if counts["query_errors"] else []
+        error = "; ".join(errors + problems) or None
         log(f"Finished: {status}")
         db.update_run(
             run_id,
@@ -175,7 +187,7 @@ def _count_fields(counts: Counter) -> dict:
     }
 
 
-def _search_all(db: Database, run_id: int, settings: dict, provider, counts: Counter, log) -> list[dict]:
+def _search_all(db: Database, run_id: int, settings: dict, sources: list, counts: Counter, log) -> list[dict]:
     matches: list[dict] = []
     seen: set[str] = set()
     for tracker_key, tracker in settings["trackers"].items():
@@ -183,39 +195,51 @@ def _search_all(db: Database, run_id: int, settings: dict, provider, counts: Cou
             log(f"[{tracker_key}] disabled, skipped")
             continue
         for query in tracker["queries"]:
-            counts["queries"] += 1
-            query_id = db.create_query(run_id, tracker_key, query, provider.name, provider.describe(query))
-            started = time.monotonic()
-            try:
-                offers = provider.search(query)
-            except Exception as exc:
-                message = str(exc) if isinstance(exc, ProviderError) else f"{exc.__class__.__name__}: {exc}"
-                db.finish_query(query_id, int((time.monotonic() - started) * 1000), None, message)
-                counts["query_errors"] += 1
-                log(f"[{tracker_key}] {query!r}: FAILED: {message}", flush=True)
-                continue
-            db.finish_query(query_id, int((time.monotonic() - started) * 1000), len(offers), None)
-            counts["results"] += len(offers)
-
-            per_query: Counter = Counter()
-            for offer in offers:
-                key, dedupe_key = listing_keys(tracker_key, offer)
-                if key in seen:
-                    per_query["duplicate"] += 1
-                    continue
-                seen.add(key)
-                match = _process_offer(db, run_id, query_id, tracker_key, offer, key, dedupe_key, settings)
-                per_query[match["decision"]] += 1
-                counts[match["decision"]] += 1
-                if match["notify_reason"] in ("new", "price_drop"):
-                    counts["matches"] += 1
-                    matches.append(match)
-            log(
-                f"[{tracker_key}] {query!r}: {len(offers)} results, {per_query['accepted']} accepted, "
-                f"{per_query['rejected']} rejected, {per_query['duplicate']} already seen in this run",
-                flush=True,
-            )
+            for source in sources:
+                query_id, offers = _run_query(db, run_id, tracker_key, query, source, counts, log)
+                per_query: Counter = Counter()
+                for offer in offers:
+                    key, dedupe_key = listing_keys(tracker_key, offer)
+                    if key in seen:
+                        per_query["duplicate"] += 1
+                        continue
+                    seen.add(key)
+                    match = _process_offer(db, run_id, query_id, tracker_key, offer, key, dedupe_key, settings)
+                    per_query[match["decision"]] += 1
+                    counts[match["decision"]] += 1
+                    if match["notify_reason"] in ("new", "price_drop"):
+                        counts["matches"] += 1
+                        matches.append(match)
+                if offers:
+                    log(
+                        f"[{tracker_key}] {source.name} {query!r}: {len(offers)} results, "
+                        f"{per_query['accepted']} accepted, {per_query['rejected']} rejected, "
+                        f"{per_query['duplicate']} already seen in this scan",
+                        flush=True,
+                    )
     return matches
+
+
+def _run_query(db, run_id, tracker_key, query, source, counts, log) -> tuple[int, list[Offer]]:
+    """Send one query to one source, recording the request, timing, result count and any error."""
+    counts["queries"] += 1
+    query_id = db.create_query(run_id, tracker_key, query, source.name, source.describe(query, tracker_key))
+    started = time.monotonic()
+    try:
+        offers = source.search(query, tracker_key)
+    except Exception as exc:
+        message = str(exc) if isinstance(exc, ProviderError) else f"{exc.__class__.__name__}: {exc}"
+        db.finish_query(query_id, int((time.monotonic() - started) * 1000), None, message)
+        counts["query_errors"] += 1
+        log(f"[{tracker_key}] {source.name} {query!r}: FAILED: {message}", flush=True)
+        return query_id, []
+    warnings = getattr(source, "warnings", None) or []
+    note = "Some engines failed: " + "; ".join(warnings) if warnings else None
+    db.finish_query(query_id, int((time.monotonic() - started) * 1000), len(offers), None, note)
+    counts["results"] += len(offers)
+    if not offers:
+        log(f"[{tracker_key}] {source.name} {query!r}: no results" + (f" ({note})" if note else ""), flush=True)
+    return query_id, offers
 
 
 def _process_offer(db, run_id, query_id, tracker_key, offer, key, dedupe_key, settings) -> dict:
@@ -288,7 +312,7 @@ def replay_run(db: Database, run_id: int, settings: dict) -> list[dict]:
     run = db.get_run(run_id)
     rows = []
     for obs in db.observations_for_run(run_id):
-        offer = offer_from_raw(run["provider"], json.loads(obs["raw"]) if obs["raw"] else {})
+        offer = offer_from_raw(obs.get("source") or run["provider"], json.loads(obs["raw"]) if obs["raw"] else {})
         ev = evaluate(obs["tracker"], offer, settings)
         rows.append({"old": obs, "new": observation_record(obs["tracker"], offer, ev)})
     return rows

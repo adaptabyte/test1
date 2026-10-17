@@ -91,7 +91,7 @@ def domain_of(url: str) -> str:
     return ""
 
 
-def _domain_matches(domain: str, allowed: str) -> bool:
+def domain_matches(domain: str, allowed: str) -> bool:
     allowed = normalize_domain(allowed)
     return bool(allowed) and (domain == allowed or domain.endswith("." + allowed))
 
@@ -102,7 +102,7 @@ def _is_blocked(entry: str, merchant: str, name_norm: str, domain: str) -> bool:
         return False
     if re.search(r"\s[-–—|]\s", entry):
         return re.sub(r"\s+", " ", merchant.strip().lower()) == re.sub(r"\s+", " ", entry)
-    if domain and "." in entry and " " not in entry and _domain_matches(domain, entry):
+    if domain and "." in entry and " " not in entry and domain_matches(domain, entry):
         return True
     return bool(name_norm) and normalize_merchant(entry) == name_norm
 
@@ -131,7 +131,7 @@ def judge_merchant(offer: Offer, trusted: list[dict], blocked: list[str], allow_
         aliases = {normalize_merchant(entry["name"]), *(normalize_merchant(a) for a in entry.get("aliases", []))}
         if name_norm and name_norm in aliases:
             by_name = entry
-        if domain and any(_domain_matches(domain, d) for d in entry.get("domains", [])):
+        if domain and any(domain_matches(domain, d) for d in entry.get("domains", [])):
             by_domain = entry
 
     if domain:

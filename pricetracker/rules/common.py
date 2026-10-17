@@ -82,6 +82,35 @@ def check_condition(ev: Evaluation, offer: Offer, reject_untested: bool) -> None
         ev.attributes["condition"] = offer.condition
 
 
+_UNAVAILABLE = re.compile(r"outofstock|soldout|discontinued|ended|unavailable|backorder", re.I)
+
+
+def check_listing(ev: Evaluation, offer: Offer, general: dict) -> None:
+    """Checks that apply to every tracker: availability and marketplace seller reputation."""
+    availability = re.sub(r"[\s_-]", "", offer.availability)
+    if availability:
+        ev.attributes["availability"] = offer.availability
+        if _UNAVAILABLE.search(availability):
+            ev.reject("listing_unavailable", f"Listing is not available to buy ({offer.availability})")
+    percent, score = offer.seller_feedback_percent, offer.seller_feedback_score
+    if percent is not None or score is not None:
+        ev.attributes["seller_feedback"] = (
+            f"{percent if percent is not None else '?'}% ({score if score is not None else '?'})"
+        )
+    if percent is not None and percent < float(general["min_seller_feedback_percent"]):
+        ev.reject(
+            "seller_feedback",
+            f"Seller feedback {percent:g}% is below the {general['min_seller_feedback_percent']:g}% minimum",
+        )
+    if score is not None and score < int(general["min_seller_feedback_score"]):
+        ev.reject(
+            "seller_feedback",
+            f"Seller has only {score} feedback ratings (minimum {general['min_seller_feedback_score']})",
+        )
+    if offer.ships_from and offer.ships_from.strip().lower() not in ("us", "usa", "united states"):
+        ev.note(f"Ships from {offer.ships_from}")
+
+
 def check_excluded_keywords(ev: Evaluation, offer: Offer, keywords: list[str]) -> None:
     hits = find_terms(norm(offer.spec_text), keywords)
     if hits:
@@ -100,8 +129,11 @@ def apply_price(
 ) -> None:
     """Compute total and per-unit price and enforce the tracker's price window."""
     if offer.price is None:
-        ev.reject("price_missing", "Listing has no price")
+        detail = f": {offer.price_problem}" if offer.price_problem else ""
+        ev.reject("price_missing", f"No price{detail}")
         return
+    if re.search(r"\d\s*(?:to|-)\s*\$?\d", offer.price_text):
+        ev.note(f"Price range ({offer.price_text}); the lowest price is used, check the variant you need")
     if offer.currency != "USD":
         ev.reject("price_currency", f"Price is not in USD ({offer.price_text or offer.currency})")
         return

@@ -26,24 +26,25 @@ from .db import Database
 from .merchants import judge_merchant, normalize_merchant
 from .models import Offer
 from .notifier import EmailError, config_problem, recipients, send_email
-from .providers import parse_price, parse_shipping
 from .rules import REASON_LABELS, TRACKER_KINDS, evaluate, unit_name
 from .scanner import ScanAlreadyRunning, is_running, replay_run, start_scan
 from .scheduler import ScanScheduler
 from .settings import (
     DEFAULT_SETTINGS,
+    EMAIL_METHODS,
     LOCK_POLICIES,
     MODULE_TYPES,
-    PROVIDERS,
+    RESEND_DEFAULT_FROM,
     SMTP_SECURITY,
     effective_settings,
     format_trusted_merchants,
     load_settings,
-    queries_per_month,
+    paid_requests_per_month,
     save_settings,
-    secret_source,
     settings_from_form,
+    value_source,
 )
+from .sources import SOURCE_LABELS, ProviderError, build_sources, parse_price, parse_shipping
 
 log = logging.getLogger(__name__)
 HERE = Path(__file__).parent
@@ -83,7 +84,7 @@ def create_app(db_path: str | Path | None = None, start_scheduler: bool = True) 
         context.update(
             settings=settings,
             tz=settings["schedule"]["timezone"],
-            demo=settings["provider"]["name"] == "demo",
+            demo=settings["sources"]["demo"]["enabled"],
             scan_running=is_running(),
             msg=request.query_params.get("msg", ""),
             err=request.query_params.get("err", ""),
@@ -116,8 +117,9 @@ def create_app(db_path: str | Path | None = None, start_scheduler: bool = True) 
                 "accepted": len(accepted),
                 "best": min((o["unit_price"] for o in accepted), default=None),
             }
-        provider = effective["provider"]
-        key_field = {"serpapi": "serpapi_api_key", "serper": "serper_api_key"}.get(provider["name"])
+        sources, source_problems = build_sources(effective)
+        if not sources and not source_problems:
+            source_problems = ["No search sources are enabled"]
         return render(
             request,
             "dashboard.html",
@@ -131,9 +133,9 @@ def create_app(db_path: str | Path | None = None, start_scheduler: bool = True) 
             next_runs=scheduler.next_runs(),
             counts=db.dashboard_counts(),
             last_email=db.last_notification(),
-            provider_ready=key_field is None or bool(provider[key_field]),
+            source_names=[SOURCE_LABELS[s.name] for s in sources],
+            source_problems=source_problems,
             email_problem=config_problem(effective["email"]),
-            monthly_queries=queries_per_month(settings),
         )
 
     @app.post("/scan")
@@ -361,27 +363,22 @@ def create_app(db_path: str | Path | None = None, start_scheduler: bool = True) 
     # --- settings ---
 
     def render_settings(request: Request, settings: dict, errors: dict | None = None) -> HTMLResponse:
-        sources = {
-            f"{section}.{key}": secret_source(settings, section, key)
-            for section, key in [
-                ("provider", "serpapi_api_key"),
-                ("provider", "serper_api_key"),
-                ("email", "smtp_username"),
-                ("email", "smtp_password"),
-            ]
-        }
+        origins = {".".join(path): value_source(settings, path) for path in config.ENV_FALLBACKS}
         return render(
             request,
             "settings.html",
             settings=settings,
             errors=errors or {},
-            sources=sources,
-            providers=PROVIDERS,
+            origins=origins,
+            env_vars={".".join(path): var for path, var in config.ENV_FALLBACKS.items()},
+            email_methods=EMAIL_METHODS,
+            resend_default_from=RESEND_DEFAULT_FROM,
+            source_labels=SOURCE_LABELS,
             module_types=MODULE_TYPES,
             lock_policies=LOCK_POLICIES,
             smtp_security=SMTP_SECURITY,
             trusted_text=format_trusted_merchants(settings["merchants"]["trusted"]),
-            monthly_queries=queries_per_month(settings),
+            paid_requests=paid_requests_per_month(settings),
             unit_name=unit_name,
         )
 
@@ -398,6 +395,35 @@ def create_app(db_path: str | Path | None = None, start_scheduler: bool = True) 
         save_settings(db, new)
         scheduler.apply(new)
         return back("/settings", msg="Settings saved")
+
+    @app.post("/settings/test-source")
+    async def settings_test_source(request: Request):
+        """Run one sample search against one source with the saved settings and report what came back."""
+        name = str((await request.form()).get("source", ""))
+        if name not in SOURCE_LABELS:
+            return back("/settings", err="Unknown source")
+        settings = effective_settings(load_settings(db))
+        for key, cfg in settings["sources"].items():
+            cfg["enabled"] = key == name.split(":")[0]
+        searxng = settings["sources"]["searxng"]
+        searxng.update(use_ebay_engine=name == "searxng:ebay", use_web_search=name == "searxng:web", max_page_fetches=3)
+        sources, problems = build_sources(settings)
+        label = SOURCE_LABELS[name]
+        if problems or not sources:
+            return back("/settings", err=f"{label}: " + ("; ".join(problems) or "not available"))
+        query = settings["trackers"]["ram"]["queries"][0] if settings["trackers"]["ram"]["queries"] else "64GB DDR4"
+        try:
+            offers = sources[0].search(query, "ram")
+        except ProviderError as exc:
+            return back("/settings", err=f"{label} test search failed: {exc}")
+        priced = [o for o in offers if o.price is not None]
+        message = f"{label}: {len(offers)} results for {query!r}, {len(priced)} with a price"
+        if priced:
+            message += f", e.g. {priced[0].title[:60]!r} at ${priced[0].price:,.2f}"
+        warnings = getattr(sources[0], "warnings", None)
+        if warnings:
+            message += ". Engines that failed: " + "; ".join(warnings)
+        return back("/settings", msg=message)
 
     @app.post("/settings/test-email")
     def settings_test_email():

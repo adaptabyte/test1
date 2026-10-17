@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..merchants import judge_merchant
 from ..models import Evaluation, Offer
+from .common import check_listing
 from .cpu import evaluate_cpu
 from .ram import evaluate_ram
 
@@ -17,6 +18,9 @@ REASON_LABELS = {
     "merchant_blocked": "Seller blocked",
     "merchant_mismatch": "Seller name and link disagree",
     "price_missing": "No price",
+    "not_a_listing": "Not a listing page",
+    "listing_unavailable": "Out of stock / ended",
+    "seller_feedback": "Low seller feedback",
     "price_currency": "Not priced in USD",
     "price_too_high": "Over price limit",
     "price_suspicious": "Suspiciously low price",
@@ -43,9 +47,15 @@ REASON_LABELS = {
 
 
 def evaluate(tracker_key: str, offer: Offer, settings: dict) -> Evaluation:
-    """Run the tracker's product rules, then the shared merchant-trust check."""
+    """Run the tracker's product rules, then the shared listing and merchant-trust checks."""
     tracker = settings["trackers"][tracker_key]
-    ev = TRACKER_KINDS[tracker_key]["evaluate"](offer, tracker)
+    if offer.not_listing_reason:
+        # Search, category and article pages from web search: nothing to judge but the site.
+        ev = Evaluation()
+        ev.reject("not_a_listing", f"Not an individual listing: {offer.not_listing_reason}")
+    else:
+        ev = TRACKER_KINDS[tracker_key]["evaluate"](offer, tracker)
+        check_listing(ev, offer, settings["general"])
     merchants = settings["merchants"]
     verdict = judge_merchant(
         offer, merchants["trusted"], merchants["blocked"], settings["general"]["allow_untrusted_merchants"]

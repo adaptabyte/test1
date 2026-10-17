@@ -11,11 +11,11 @@
   </form>
 </div>
 
-{% if not provider_ready or email_problem %}
+{% if source_problems or email_problem %}
 <div class="flash warn">
   <b>Setup needed</b>
   <ul>
-    {% if not provider_ready %}<li>No API key for {{ settings.provider.name }}. Add one in <a href="/settings#provider">Settings → Search provider</a> (or switch to Demo to try the app).</li>{% endif %}
+    {% for problem in source_problems %}<li>Search: {{ problem }}. Fix it in <a href="/settings#sources">Settings → Search sources</a>.</li>{% endfor %}
     {% if email_problem %}<li>Email: {{ email_problem }}. Configure it in <a href="/settings#email">Settings → Email</a>.</li>{% endif %}
   </ul>
 </div>
@@ -54,7 +54,8 @@
   <div class="card">
     <div class="stat-label">Listings tracked</div>
     <div class="stat-value">{{ counts.listings }}</div>
-    <div class="small muted">{{ counts.observations }} observations kept · ~{{ monthly_queries }} API queries/month</div>
+    <div class="small muted">{{ counts.observations }} observations kept</div>
+    <div class="small">Sources: {{ source_names|join(", ") or "none" }}</div>
   </div>
 </div>
 

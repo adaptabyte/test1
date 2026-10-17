@@ -1,9 +1,12 @@
 import copy
+import json
 import smtplib
 import typing
 
+import httpx
 import pytest
 
+from pricetracker import notifier
 from pricetracker.db import Database
 from pricetracker.models import Offer
 from pricetracker.settings import DEFAULT_SETTINGS, load_settings, save_settings
@@ -77,7 +80,35 @@ def fake_smtp(monkeypatch):
 
 @pytest.fixture
 def email_on(configure):
+    """Email over SMTP (pair with the fake_smtp fixture)."""
+
     def change(s):
-        s["email"].update(smtp_username="tracker@example.com", smtp_password="app-password")
+        s["email"].update(method="smtp", smtp_username="tracker@example.com", smtp_password="app-password")
 
     return configure(change)
+
+
+@pytest.fixture
+def resend(monkeypatch):
+    """Capture Resend API calls; set `resend.status` / `resend.body` to simulate errors."""
+
+    class Resend:
+        calls: typing.ClassVar[list] = []
+        status = 200
+        body: typing.ClassVar[dict] = {"id": "email_123"}
+
+    Resend.calls = []
+
+    def handler(request):
+        Resend.calls.append({"headers": dict(request.headers), "json": json.loads(request.content)})
+        return httpx.Response(Resend.status, json=Resend.body)
+
+    monkeypatch.setattr(notifier, "http_transport", httpx.MockTransport(handler))
+    return Resend
+
+
+def demo_only(settings: dict) -> None:
+    """Use only the demo source (no network)."""
+    for cfg in settings["sources"].values():
+        cfg["enabled"] = False
+    settings["sources"]["demo"]["enabled"] = True

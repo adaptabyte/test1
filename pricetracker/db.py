@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS queries (
     started_at TEXT NOT NULL,
     duration_ms INTEGER,
     result_count INTEGER,
-    error TEXT
+    error TEXT,
+    note TEXT
 );
 CREATE TABLE IF NOT EXISTS listings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,6 +140,10 @@ class Database:
         with self.connect() as conn:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(SCHEMA)
+            # Columns added after the first release, for databases created by it.
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(queries)")}
+            if "note" not in columns:
+                conn.execute("ALTER TABLE queries ADD COLUMN note TEXT")
 
     @contextmanager
     def connect(self):
@@ -235,11 +240,13 @@ class Database:
             )
             return cur.lastrowid
 
-    def finish_query(self, query_id: int, duration_ms: int, result_count: int | None, error: str | None) -> None:
+    def finish_query(
+        self, query_id: int, duration_ms: int, result_count: int | None, error: str | None, note: str | None = None
+    ) -> None:
         with self.connect() as conn:
             conn.execute(
-                "UPDATE queries SET duration_ms = ?, result_count = ?, error = ? WHERE id = ?",
-                (duration_ms, result_count, error, query_id),
+                "UPDATE queries SET duration_ms = ?, result_count = ?, error = ?, note = ? WHERE id = ?",
+                (duration_ms, result_count, error, note, query_id),
             )
 
     def queries_for_run(self, run_id: int) -> list[dict]:
@@ -336,7 +343,8 @@ class Database:
     def observations_for_run(self, run_id: int) -> list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT o.*, q.query AS query_text FROM observations o LEFT JOIN queries q ON q.id = o.query_id "
+                "SELECT o.*, q.query AS query_text, q.provider AS source FROM observations o "
+                "LEFT JOIN queries q ON q.id = o.query_id "
                 "WHERE o.run_id = ? ORDER BY o.decision, o.tracker, o.unit_price IS NULL, o.unit_price",
                 (run_id,),
             ).fetchall()
@@ -345,7 +353,8 @@ class Database:
     def observations_for_listing(self, listing_id: int, limit: int = 200) -> list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT o.*, q.query AS query_text FROM observations o LEFT JOIN queries q ON q.id = o.query_id "
+                "SELECT o.*, q.query AS query_text, q.provider AS source FROM observations o "
+                "LEFT JOIN queries q ON q.id = o.query_id "
                 "WHERE o.listing_id = ? ORDER BY o.id DESC LIMIT ?",
                 (listing_id, limit),
             ).fetchall()
