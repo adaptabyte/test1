@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Price Tracker{% endblock %} · Price Tracker</title>
+  <link rel="stylesheet" href="/static/style.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/">Price Tracker</a>
+    <nav>
+      {% for href, label in [("/", "Dashboard"), ("/runs", "Scans"), ("/listings", "Listings"), ("/merchants", "Merchants"), ("/emails", "Emails"), ("/playground", "Rule tester"), ("/settings", "Settings")] %}
+      <a href="{{ href }}" class="{{ 'active' if request.url.path == href or (href != '/' and request.url.path.startswith(href)) else '' }}">{{ label }}</a>
+      {% endfor %}
+    </nav>
+    {% if scan_running %}<span class="pill running">Scan running…</span>{% endif %}
+  </div>
+</header>
+{% if demo %}
+<div class="banner warn">Demo mode: scans return fake sample listings. Pick SerpApi or Serper in <a href="/settings#provider">Settings</a> to search Google Shopping for real.</div>
+{% endif %}
+<main class="container">
+  {% if msg %}<div class="flash ok">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="flash bad">{{ err }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="container footer">Price Tracker v{{ version }} · times shown in {{ tz }}</footer>
+</body>
+</html>

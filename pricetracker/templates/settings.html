@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% macro error(name) -%}{% if errors.get(name) %}<div class="field-error">{{ errors[name] }}</div>{% endif %}{%- endmacro %}
+
+{% macro text(name, label, value, hint="", type="text") -%}
+<div class="{{ 'has-error' if errors.get(name) else '' }}">
+  <label for="{{ name }}">{{ label }}</label>
+  <input id="{{ name }}" type="{{ type }}" name="{{ name }}" value="{{ value }}"{% if type == 'number' %} step="any"{% endif %}>
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}{{ error(name) }}
+</div>
+{%- endmacro %}
+
+{% macro area(name, label, value, hint="", cls="") -%}
+<div class="{{ 'has-error' if errors.get(name) else '' }}">
+  <label for="{{ name }}">{{ label }}</label>
+  <textarea id="{{ name }}" name="{{ name }}" class="{{ cls }}">{{ value }}</textarea>
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}{{ error(name) }}
+</div>
+{%- endmacro %}
+
+{% macro check(name, label, checked, hint="") -%}
+<label class="check"><input type="checkbox" name="{{ name }}" {{ 'checked' if checked else '' }}>
+  <span>{{ label }}{% if hint %}<span class="hint" style="display:block">{{ hint }}</span>{% endif %}</span></label>
+{%- endmacro %}
+
+{% macro select(name, label, options, current, hint="") -%}
+<div class="{{ 'has-error' if errors.get(name) else '' }}">
+  <label for="{{ name }}">{{ label }}</label>
+  <select id="{{ name }}" name="{{ name }}">
+    {% for value, text in options.items() %}<option value="{{ value }}" {{ 'selected' if value == current else '' }}>{{ text }}</option>{% endfor %}
+  </select>
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}{{ error(name) }}
+</div>
+{%- endmacro %}
+
+{% macro secret(name, label, hint="") -%}
+{% set source = sources.get(name, '') %}
+<div>
+  <label for="{{ name }}">{{ label }}</label>
+  <input id="{{ name }}" type="password" name="{{ name }}" value="" autocomplete="new-password"
+    placeholder="{% if source == 'settings' %}saved (leave blank to keep){% elif source.startswith('env:') %}using {{ source[4:] }} environment variable{% else %}not set{% endif %}">
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}
+  {% if source == 'settings' %}<label class="check"><input type="checkbox" name="{{ name }}.clear"> Clear saved value</label>{% endif %}
+</div>
+{%- endmacro %}
+
+{% block content %}
+<h1>Settings</h1>
+{% if errors %}<div class="flash bad">Some settings need fixing (marked below). Nothing was saved.</div>{% endif %}
+
+<form method="post" action="/settings">
+<fieldset id="provider">
+  <legend>Search provider</legend>
+  <p class="hint">Google has no public Shopping API and blocks scrapers, so searches run through a SERP API service that performs the Google Shopping search and returns the results as data. Both work; pick one and paste its API key. Your current settings use about <b>{{ monthly_queries }} queries per month</b> (queries × scans per day × 30); check the provider's plan covers that.</p>
+  <div class="form-grid">
+    {{ select("provider.name", "Provider", providers, settings.provider.name) }}
+    {{ secret("provider.serpapi_api_key", "SerpApi API key", "From serpapi.com → Dashboard → API key") }}
+    {{ secret("provider.serper_api_key", "Serper.dev API key", "From serper.dev → API keys") }}
+  </div>
+  <div class="form-grid">
+    {{ text("provider.country", "Country (gl)", settings.provider.country, "Two-letter code; 'us' for US stores") }}
+    {{ text("provider.language", "Language (hl)", settings.provider.language) }}
+    {{ text("provider.location", "Location (optional)", settings.provider.location, "e.g. 'Austin, Texas, United States'; blank = whole country") }}
+    {{ text("provider.results_per_query", "Results per query", settings.provider.results_per_query, "10–100", "number") }}
+    {{ text("provider.timeout_seconds", "Request timeout (seconds)", settings.provider.timeout_seconds, "", "number") }}
+  </div>
+</fieldset>
+
+<fieldset id="schedule">
+  <legend>Schedule</legend>
+  {{ check("schedule.enabled", "Run scans automatically", settings.schedule.enabled) }}
+  <div class="form-grid">
+    {{ text("schedule.times", "Times of day", settings.schedule.times|join(", "), "24-hour HH:MM, comma separated. Default is twice a day.") }}
+    {{ text("schedule.timezone", "Time zone", settings.schedule.timezone, "IANA name, e.g. America/New_York, America/Chicago, America/Los_Angeles") }}
+  </div>
+</fieldset>
+
+<fieldset id="email">
+  <legend>Email</legend>
+  {{ check("email.enabled", "Send an email when a scan finds new matches", settings.email.enabled) }}
+  <div class="form-grid">
+    {{ text("email.to", "Send to", settings.email.to, "Comma-separate several addresses") }}
+    {{ text("email.from_address", "From address", settings.email.from_address, "Blank = the SMTP username") }}
+    {{ text("email.smtp_host", "SMTP server", settings.email.smtp_host, "Gmail: smtp.gmail.com") }}
+    {{ text("email.smtp_port", "SMTP port", settings.email.smtp_port, "587 for STARTTLS, 465 for SSL", "number") }}
+    {{ select("email.smtp_security", "Encryption", smtp_security, settings.email.smtp_security) }}
+    <div>
+      <label for="email.smtp_username">SMTP username</label>
+      <input id="email.smtp_username" type="text" name="email.smtp_username" value="{{ settings.email.smtp_username }}"
+        placeholder="{{ 'using ' ~ sources['email.smtp_username'][4:] ~ ' environment variable' if sources['email.smtp_username'].startswith('env:') else 'e.g. you@gmail.com' }}">
+      <div class="hint">Usually your full email address</div>
+    </div>
+    {{ secret("email.smtp_password", "SMTP password", "For Gmail, create an App Password (Google Account → Security → 2-Step Verification → App passwords); your normal password will not work.") }}
+  </div>
+  {{ check("email.renotify_on_price_drop", "Email again when an already-emailed listing drops in price", settings.email.renotify_on_price_drop) }}
+  <div class="form-grid">
+    {{ text("email.price_drop_percent", "Minimum drop to re-email (%)", settings.email.price_drop_percent, "", "number") }}
+  </div>
+  <p><button class="btn" formaction="/settings/test-email" formmethod="post">Send test email</button> <span class="hint">Uses the saved settings; save first if you changed anything.</span></p>
+</fieldset>
+
+{% set ram = settings.trackers.ram %}
+<fieldset id="ram">
+  <legend>Tracker: {{ ram.label }}</legend>
+  {{ check("trackers.ram.enabled", "Enabled", ram.enabled) }}
+  {{ text("trackers.ram.label", "Name", ram.label) }}
+  {{ area("trackers.ram.queries", "Google Shopping queries (one per line)", ram.queries|join("\n"), "Each line is one search per scan. Broad queries find more; the rules below do the filtering.") }}
+  <div class="form-grid">
+    {{ text("trackers.ram.max_price_per_stick", "Price per stick must be below ($)", ram.max_price_per_stick, "A 2-stick kit's price is divided by 2", "number") }}
+    {{ text("trackers.ram.min_price_per_stick", "Reject below ($ per stick)", ram.min_price_per_stick, "Sanity floor: lower prices are usually scams or mis-parsed", "number") }}
+    {{ text("trackers.ram.module_size_gb", "Capacity per stick (GB)", ram.module_size_gb, "", "number") }}
+    {{ text("trackers.ram.max_sticks_per_listing", "Max sticks per listing", ram.max_sticks_per_listing, "2 = single sticks and 2-stick kits", "number") }}
+    {{ text("trackers.ram.min_speed_mts", "Minimum speed (MT/s)", ram.min_speed_mts, "e.g. 2666", "number") }}
+    {{ text("trackers.ram.preferred_speed_mts", "Preferred speed (MT/s)", ram.preferred_speed_mts, "Matches at or above this are tagged 'preferred'", "number") }}
+  </div>
+  <div class="{{ 'has-error' if errors.get('trackers.ram.allowed_types') else '' }}">
+    <label>Allowed module types</label>
+    <div class="row">{% for t in module_types %}<label class="check"><input type="checkbox" name="trackers.ram.allowed_types" value="{{ t }}" {{ 'checked' if t in ram.allowed_types else '' }}> {{ t }}</label>{% endfor %}</div>
+    <div class="hint">SO-DIMM (laptop) modules are always rejected.</div>{{ error("trackers.ram.allowed_types") }}
+  </div>
+  {{ check("trackers.ram.allow_unknown_type", "Accept listings that don't say RDIMM / LRDIMM / UDIMM", ram.allow_unknown_type, "They are still rejected if they look like laptop memory.") }}
+  {{ check("trackers.ram.allow_unknown_speed", "Accept listings that don't state a speed", ram.allow_unknown_speed, "Off = strict: speed must be stated and at least the minimum.") }}
+  {{ check("trackers.ram.include_shipping", "Include shipping in the price", ram.include_shipping) }}
+  {{ check("trackers.ram.reject_untested", "Reject 'untested' and 'as-is' listings", ram.reject_untested, "For-parts / broken / not working listings are always rejected.") }}
+  {{ area("trackers.ram.exclude_keywords", "Also reject titles containing", ram.exclude_keywords|join(", "), "Comma or newline separated words/phrases") }}
+</fieldset>
+
+{% set cpu = settings.trackers.cpu %}
+<fieldset id="cpu">
+  <legend>Tracker: {{ cpu.label }}</legend>
+  {{ check("trackers.cpu.enabled", "Enabled", cpu.enabled) }}
+  {{ text("trackers.cpu.label", "Name", cpu.label) }}
+  {{ area("trackers.cpu.queries", "Google Shopping queries (one per line)", cpu.queries|join("\n")) }}
+  <div class="form-grid">
+    {{ text("trackers.cpu.model", "CPU model", cpu.model, "Title must mention this, e.g. 3975WX", "text") }}
+    {{ text("trackers.cpu.model_aliases", "Also accept part numbers", cpu.model_aliases|join(", "), "AMD OPNs that identify the same CPU") }}
+    {{ text("trackers.cpu.max_price", "Price per CPU must be below ($)", cpu.max_price, "", "number") }}
+    {{ text("trackers.cpu.min_price", "Reject below ($)", cpu.min_price, "Sanity floor for coolers, empty boxes and scams", "number") }}
+  </div>
+  {{ select("trackers.cpu.lock_policy", "Vendor lock (AMD PSB)", lock_policies, cpu.lock_policy, "Threadripper PRO chips pulled from Lenovo P620s are usually permanently locked to Lenovo boards. Listings that say locked, mention PSB, or mention Lenovo/P620 without saying unlocked are always rejected.") }}
+  {{ check("trackers.cpu.include_shipping", "Include shipping in the price", cpu.include_shipping) }}
+  {{ check("trackers.cpu.reject_untested", "Reject 'untested' and 'as-is' listings", cpu.reject_untested, "For-parts / broken / bent pins / not working listings are always rejected.") }}
+  {{ area("trackers.cpu.exclude_keywords", "Also reject titles containing", cpu.exclude_keywords|join(", "), "Comma or newline separated words/phrases") }}
+</fieldset>
+
+<fieldset id="merchants">
+  <legend>Trusted merchants</legend>
+  <p class="hint">Only listings from these sellers are accepted. One per line: <code>Name | aliases | domains</code>. A listing is trusted when its link's domain matches (subdomains included), or, when Google hides the merchant link, when the seller name matches the name or an alias. A seller named like a trusted store but linking elsewhere is rejected as a possible impostor. Marketplace sellers ("eBay - someseller") are matched by the part before the dash.</p>
+  {{ area("merchants.trusted", "Trusted merchants", trusted_text, "", "tall") }}
+  <p><button class="btn small" formaction="/settings/restore-merchants" formmethod="post" onclick="return confirm('Replace the trusted list with the defaults?')">Restore default list</button></p>
+  {{ area("merchants.blocked", "Blocked sellers or domains (one per line)", settings.merchants.blocked|join("\n"), "Always rejected, even if they match the trusted list") }}
+  {{ check("general.allow_untrusted_merchants", "Accept sellers that are not on the trusted list", settings.general.allow_untrusted_merchants, "Not recommended: this is the main protection against scam sites.") }}
+</fieldset>
+
+<fieldset id="general">
+  <legend>General</legend>
+  <div class="form-grid">
+    {{ text("general.public_base_url", "Web UI address for email links", settings.general.public_base_url, "e.g. http://192.168.1.20:8000; blank = no link") }}
+    {{ text("general.retention_days", "Keep listing details for (days)", settings.general.retention_days, "Older per-scan details are pruned; listings and scan summaries are kept", "number") }}
+  </div>
+</fieldset>
+
+<div class="save-bar">
+  <button class="btn primary">Save settings</button>
+  <span class="hint">Changes apply to the next scan. Use “Replay with current settings” on any scan to preview their effect.</span>
+</div>
+</form>
+{% endblock %}

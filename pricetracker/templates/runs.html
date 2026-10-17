@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Scans{% endblock %}
+{% block head %}{% if scan_running %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block content %}
+<h1>Scan history <span class="muted small">{{ total }} scans</span></h1>
+<p class="muted">Every scan, scheduled or manual. Open one to see each query that was sent, every listing that came back, and why it was accepted or rejected.</p>
+<div class="table-wrap">
+<table class="data">
+  <thead>
+    <tr>
+      <th>Scan</th><th>Started</th><th>Duration</th><th>Trigger</th><th>Provider</th><th>Status</th>
+      <th class="num">Queries</th><th class="num">Results</th><th class="num">Accepted</th><th class="num">Rejected</th><th class="num">New matches</th><th>Email</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in runs %}
+    <tr>
+      <td><a href="/runs/{{ r.id }}">#{{ r.id }}</a></td>
+      <td class="nowrap">{{ r.started_at|dt }}</td>
+      <td>{{ duration(r.started_at, r.finished_at) }}</td>
+      <td>{{ r.trigger }}{% if not r.send_email %} <span class="badge">no email</span>{% endif %}</td>
+      <td>{{ r.provider }}</td>
+      <td>{{ m.status_badge(r.status) }}{% if r.error %}<div class="small muted">{{ r.error }}</div>{% endif %}</td>
+      <td class="num">{{ r.query_count }}{% if r.query_errors %} <span class="badge bad">{{ r.query_errors }} failed</span>{% endif %}</td>
+      <td class="num">{{ r.result_count }}</td>
+      <td class="num">{{ r.accepted_count }}</td>
+      <td class="num">{{ r.rejected_count }}</td>
+      <td class="num">{{ r.new_match_count }}</td>
+      <td class="small">{{ r.email_status or '' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="12" class="muted">No scans yet. Start one from the <a href="/">dashboard</a>.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a class="btn small" href="?page={{ page - 1 }}">← Newer</a>{% endif %}
+  <span class="muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn small" href="?page={{ page + 1 }}">Older →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

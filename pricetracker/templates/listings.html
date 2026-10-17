@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Listings{% endblock %}
+{% block content %}
+<h1>Listings <span class="muted small">{{ total }} matching</span></h1>
+<p class="muted">Every distinct listing ever returned by a search, with its latest decision. Open one to see its full history.</p>
+<form class="filters" method="get">
+  <div><label for="tracker">Tracker</label>
+    <select id="tracker" name="tracker">
+      <option value="">All</option>
+      {% for key, t in trackers.items() %}<option value="{{ key }}" {{ 'selected' if filters.tracker == key }}>{{ t.label }}</option>{% endfor %}
+    </select></div>
+  <div><label for="decision">Latest decision</label>
+    <select id="decision" name="decision">
+      {% for value, label in [("", "Any"), ("accepted", "Accepted"), ("rejected", "Rejected"), ("notified", "Emailed")] %}
+      <option value="{{ value }}" {{ 'selected' if filters.decision == value }}>{{ label }}</option>{% endfor %}
+    </select></div>
+  <div><label for="q">Title contains</label><input id="q" type="text" name="q" value="{{ filters.q }}"></div>
+  <div><label for="merchant">Seller / domain</label><input id="merchant" type="text" name="merchant" value="{{ filters.merchant }}"></div>
+  <div><label for="sort">Sort</label>
+    <select id="sort" name="sort">
+      {% for value, label in [("recent", "Last seen"), ("first_seen", "First seen"), ("price", "Lowest price"), ("seen", "Most seen")] %}
+      <option value="{{ value }}" {{ 'selected' if filters.sort == value }}>{{ label }}</option>{% endfor %}
+    </select></div>
+  <div><button class="btn primary">Filter</button> <a class="btn" href="/listings">Reset</a></div>
+</form>
+<div class="table-wrap">
+<table class="data">
+  <thead><tr><th>Latest</th><th>Tracker</th><th>Listing</th><th>Seller</th><th class="num">Per unit</th><th class="num">Best accepted</th><th>Why</th><th>First seen</th><th>Last seen</th><th class="num">Seen</th><th>Emailed</th></tr></thead>
+  <tbody>
+  {% for l in listings %}
+    <tr>
+      <td>{{ m.decision_badge(l.last_decision) }}</td>
+      <td>{{ l.tracker }}</td>
+      <td class="title"><a href="/listings/{{ l.id }}">{{ l.title }}</a>{% if l.link|safe_url %}<a class="small" href="{{ l.link|safe_url }}" target="_blank" rel="noopener noreferrer"> ↗</a>{% endif %}</td>
+      <td>{{ l.merchant }}{% if l.merchant_domain %}<div class="small muted">{{ l.merchant_domain }}</div>{% endif %}</td>
+      <td class="num">{{ l.last_unit_price|money }}</td>
+      <td class="num">{{ l.best_unit_price|money }}</td>
+      <td>{{ m.reasons_list((l.last_reasons or [])[:2], []) }}{% if (l.last_reasons or [])|length > 2 %}<span class="small muted">+{{ l.last_reasons|length - 2 }} more</span>{% endif %}</td>
+      <td class="nowrap small">{{ l.first_seen_at|dt("%b %d %I:%M %p") }}</td>
+      <td class="nowrap small">{{ l.last_seen_at|ago }}</td>
+      <td class="num">{{ l.times_seen }}</td>
+      <td>{% if l.notified_at %}<span class="badge ok">{{ l.notified_unit_price|money }}</span>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="11" class="muted">No listings match these filters.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a class="btn small" href="?{{ page_query }}&page={{ page - 1 }}">← Previous</a>{% endif %}
+  <span class="muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn small" href="?{{ page_query }}&page={{ page + 1 }}">Next →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,64 @@
+{% macro decision_badge(decision) -%}
+<span class="badge {{ 'ok' if decision == 'accepted' else 'bad' }}">{{ decision }}</span>
+{%- endmacro %}
+
+{% macro status_badge(status) -%}
+<span class="badge {{ {'ok': 'ok', 'partial': 'warn', 'failed': 'bad', 'running': 'info'}.get(status, '') }}">{{ status }}</span>
+{%- endmacro %}
+
+{% macro reasons_list(reasons, notes) -%}
+<ul class="reasons">
+  {% for r in reasons %}<li class="bad"><span class="code">{{ reason_labels.get(r.code, r.code) }}:</span> {{ r.message }}</li>{% endfor %}
+  {% for n in notes %}<li class="warn">{{ n }}</li>{% endfor %}
+</ul>
+{%- endmacro %}
+
+{% macro specs(tracker, a) -%}
+{% if tracker == 'ram' -%}
+{{ a.sticks|default('?') }} × {{ a.stick_gb|default('?') }}GB · {{ a.module_type|default('?') }} · {% if a.speed_mts is number %}DDR4-{{ a.speed_mts }}{% else %}speed ?{% endif %}
+{%- else -%}
+{{ a.model|default('?') }} · lock: {{ a.vendor_lock|default('?') }}
+{%- endif %}{% if a.condition %} · {{ a.condition }}{% endif %}
+{%- endmacro %}
+
+{% macro notify_badge(obs) -%}
+{% if obs.notified %}<span class="badge ok">emailed</span>
+{% elif obs.notify_reason == 'new' or obs.notify_reason == 'price_drop' %}<span class="badge warn" title="Matched but not emailed (email off, failed or not configured)">not emailed</span>
+{% elif obs.notify_reason == 'already_notified' %}<span class="badge">already emailed</span>
+{% elif obs.notify_reason %}<span class="badge" title="{{ obs.notify_reason }}">duplicate</span>
+{% endif %}
+{%- endmacro %}
+
+{% macro observation_table(observations, show_query=true) -%}
+<div class="table-wrap">
+<table class="data">
+  <thead>
+    <tr>
+      <th>Decision</th><th>Tracker</th><th>Listing</th><th>Seller</th>
+      <th class="num">Per unit</th><th class="num">Total</th><th>Details</th>{% if show_query %}<th>Found by</th>{% endif %}<th>Email</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for o in observations %}
+    <tr>
+      <td>{{ decision_badge(o.decision) }}{% if o.tier == 'preferred' and o.decision == 'accepted' %}<br><span class="badge info">preferred</span>{% endif %}</td>
+      <td class="nowrap">{{ o.tracker }}</td>
+      <td class="title">
+        <a href="/listings/{{ o.listing_id }}">{{ o.title }}</a>
+        {% if o.link|safe_url %}<a class="small" href="{{ o.link|safe_url }}" target="_blank" rel="noopener noreferrer"> ↗</a>{% endif %}
+        <div class="small muted">{{ specs(o.tracker, o.attributes) }}</div>
+      </td>
+      <td>{{ o.merchant }}{% if o.merchant_domain %}<div class="small muted">{{ o.merchant_domain }}</div>{% endif %}</td>
+      <td class="num">{{ o.unit_price|money }}{% if o.units and o.units > 1 %}<div class="small muted">{{ o.units }} units</div>{% endif %}</td>
+      <td class="num">{{ o.total_price|money }}<div class="small muted">{% if o.shipping is none %}ship ?{% elif o.shipping == 0 %}free ship{% else %}+{{ o.shipping|money }} ship{% endif %}</div></td>
+      <td>{{ reasons_list(o.reasons, o.notes) }}</td>
+      {% if show_query %}<td class="small muted">{{ o.query_text or '' }}</td>{% endif %}
+      <td>{{ notify_badge(o) }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="9" class="muted">No listings.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{%- endmacro %}

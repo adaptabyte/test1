@@ -1,0 +1,15 @@
+services:
+  pricetracker:
+    build: .
+    container_name: pricetracker
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - tracker-data:/data
+
+volumes:
+  tracker-data:

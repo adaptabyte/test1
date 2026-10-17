@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Listing {{ listing.id }}{% endblock %}
+{% block content %}
+<h1>{{ listing.title }}</h1>
+<div class="grid">
+  <div class="card">
+    <dl class="kv">
+      <dt>Tracker</dt><dd>{{ trackers[listing.tracker].label if listing.tracker in trackers else listing.tracker }}</dd>
+      <dt>Seller</dt><dd>{{ listing.merchant }}{% if listing.merchant_domain %} ({{ listing.merchant_domain }}){% endif %}</dd>
+      <dt>Link</dt><dd>{% if listing.link|safe_url %}<a href="{{ listing.link|safe_url }}" target="_blank" rel="noopener noreferrer">{{ listing.link }}</a>{% else %}—{% endif %}</dd>
+      <dt>Latest</dt><dd>{{ m.decision_badge(listing.last_decision) }} at {{ listing.last_unit_price|money }} per {{ unit_name(listing.tracker) }}</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <dl class="kv">
+      <dt>First seen</dt><dd>{{ listing.first_seen_at|dt }}</dd>
+      <dt>Last seen</dt><dd>{{ listing.last_seen_at|dt }} ({{ listing.last_seen_at|ago }})</dd>
+      <dt>Times seen</dt><dd>{{ listing.times_seen }}</dd>
+      <dt>Best accepted</dt><dd>{{ listing.best_unit_price|money }}</dd>
+      <dt>Emailed</dt><dd>{% if listing.notified_at %}{{ listing.notified_at|dt }} at {{ listing.notified_unit_price|money }}{% else %}never{% endif %}</dd>
+    </dl>
+  </div>
+</div>
+
+{% if history %}
+<h2>Latest evaluation</h2>
+<div class="card">
+  <div>{{ m.decision_badge(history[0].decision) }} <span class="muted">{{ m.specs(listing.tracker, history[0].attributes) }}</span></div>
+  {{ m.reasons_list(history[0].reasons, history[0].notes) }}
+  <h3>Parsed attributes</h3>
+  <dl class="kv small">
+    {% for k, v in history[0].attributes.items() %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}
+  </dl>
+</div>
+{% endif %}
+
+<h2>History</h2>
+<div class="table-wrap">
+<table class="data">
+  <thead><tr><th>When</th><th>Scan</th><th>Query</th><th class="num">Item</th><th class="num">Shipping</th><th class="num">Per unit</th><th>Decision</th><th>Reasons / notes</th><th>Email</th><th>Raw</th></tr></thead>
+  <tbody>
+  {% for o in history %}
+    <tr>
+      <td class="nowrap small">{{ o.created_at|dt }}</td>
+      <td><a href="/runs/{{ o.run_id }}">#{{ o.run_id }}</a></td>
+      <td class="small">{{ o.query_text or '' }}</td>
+      <td class="num">{{ o.price|money }}</td>
+      <td class="num">{% if o.shipping is none %}?{% else %}{{ o.shipping|money }}{% endif %}</td>
+      <td class="num">{{ o.unit_price|money }}</td>
+      <td>{{ m.decision_badge(o.decision) }}</td>
+      <td>{{ m.reasons_list(o.reasons, o.notes) }}</td>
+      <td>{{ m.notify_badge(o) }}</td>
+      <td><a class="small" href="/observations/{{ o.id }}/raw">JSON</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="10" class="muted">No stored observations (older ones are pruned after {{ settings.general.retention_days }} days).</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if latest_raw %}
+<h2>Raw result from the search provider</h2>
+<details><summary>Show JSON</summary><pre>{{ latest_raw }}</pre></details>
+{% endif %}
+{% endblock %}
